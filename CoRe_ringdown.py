@@ -78,7 +78,7 @@ class CoReAnalysis:
         plt.legend()
         plt.grid()
         plt.show()
-        #Column 1 is time then I think Re(strain),Im(strain), ., ., ., dE/dt,...
+        #Column 1 is time then I think Re(strain),Im(strain), ., ., ., dE/dt,..
 
 test = CoReAnalysis()
 test.graph("h", column=2, n_overtones=2)
