@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.integrate import simpson
 
 def ringdown_comb(omegas, taus):
     def model(t, *params):
@@ -34,3 +35,8 @@ def ringdown_imag(omegas, taus):
             sig += -A * np.exp(-t/taus[n]) * np.sin(omegas[n]*t + phi)
         return sig
     return model
+
+def mismatch_function(time, data, fit):
+    num = simpson(data*np.conj(fit), time)
+    den = np.sqrt(simpson(data*np.conj(data), time)*simpson(fit*np.conj(fit), time))
+    return 1-np.abs(num/den)
