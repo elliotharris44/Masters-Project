@@ -20,5 +20,6 @@ time = strain.time
 h_plus = h.real
 h_cross = h.imag
 
-plt.plot(time,h_cross)
-plt.show()
+print(sim.keys())
+#plt.plot(time,h_cross)
+#plt.show()

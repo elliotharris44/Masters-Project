@@ -4,7 +4,6 @@ import qnm
 import matplotlib.pyplot as plt
 import scipy
 from functions import *
-from scipy.integrate import simpson
 
 class SXSAnalysis:
     """
@@ -19,38 +18,36 @@ class SXSAnalysis:
 
         self.strain = self.sim.strain
         self.time = self.strain.time
-        self.total_signal = np.zeros_like(self.time)
+
+        ind = np.flatnonzero((self.sim.psi4.LM == [2,2]).all(axis=1))[0]
+        psi4_22 = self.sim.psi4.data[:, ind].real
+        peaks, _ = scipy.signal.find_peaks(psi4_22) #maybe need different peaks for real and imag
+        main_peak_index = np.argmax(psi4_22[peaks])
+        self.t = self.time[peaks[main_peak_index]]+20 #reduces mismatch the most
 
     def graph(self, waveform='h', mode=[2,2], n_overtones=0,
-               shift_below=10, shift_above=75, centre=13, fit_start=0):
+               shift_below=10, shift_above=75, centre=0, fit_start=0, a=None, mass_bh=None):
         """
         Arguments
         waveform(string): h, psi4
-        comp(string): real or imag component
         mode(list): list of 2 element lists saying l and m mode
         """
         fig, axs = plt.subplots(2, 1)
 
         time = self.time
-
+        if mass_bh is None:
+            mass_bh = self.sim.metadata['remnant_mass']
+  
         if waveform=='h':
             modes = self.strain
             
         else:
             modes = self.sim.psi4
 
-        matches = np.all(modes.LM == mode, axis=1)
-        ind = np.where(matches)[0]
-        signal = modes.data[:,ind].squeeze()
-        
-        signal_real = signal.real
-        signal_imag = signal.imag
+        ind = np.flatnonzero((modes.LM == mode).all(axis=1))[0]
+        signal = modes.data[:, ind]
 
-        peaks, _ = scipy.signal.find_peaks(signal_real) #maybe need different peaks for real and imag
-        main_peak_index = np.argmax(signal_real[peaks])
-        t = time[peaks[main_peak_index]]+centre
-        print(t-centre)
-        
+        t = self.t+centre
         max_t = t+shift_above #change to time[-1]
         min = np.abs(time-t).argmin()
         max = np.abs(time-max_t).argmin()
@@ -61,11 +58,9 @@ class SXSAnalysis:
         time_fit = time_shift[int(fit_start/dt):]
         time_plot = time[min-int(shift_below/dt):max] - time_ring[0]
 
-        signal_real_ring = signal_real[min+int(fit_start/dt):max]
-        signal_imag_ring = signal_imag[min+int(fit_start/dt):max]
-        signal_real_plot = signal_real[min-int(shift_below/dt):max]
-        signal_imag_plot = signal_imag[min-int(shift_below/dt):max]
-        signal_comb = np.concatenate([signal_real_ring, signal_imag_ring])
+        signal_ring = signal[min+int(fit_start/dt):max]
+        signal_plot = signal[min-int(shift_below/dt):max]
+        signal_comb = np.concatenate([signal_ring.real, signal_ring.imag])
         time_comb = np.concatenate([time_fit, time_fit+time_fit[-1]+dt])
 
         p0 = []
@@ -73,7 +68,11 @@ class SXSAnalysis:
         taus = []
         for n in range(n_overtones+1):
             grav_220 = qnm.modes_cache(s=-2,l=mode[0],m=mode[1],n=n)
-            omega, _, _ = grav_220(self.a)
+            if a is None:
+                omega, _, _ = grav_220(self.a)
+            else:
+                omega, _, _ = grav_220(a)
+            omega = omega/mass_bh
             omegas.append(np.real(omega))
             taus.append(-1/np.imag(omega))
             p0 += [0.1, 0] #parameter guesses
@@ -95,49 +94,68 @@ class SXSAnalysis:
         axs[0].axvline(fit_start, color='grey', linestyle=':', label='Start of Fitting')
         axs[1].axvline(fit_start, color='grey', linestyle=':', label='Start of Fitting')
         
-        axs[0].plot(time_plot, signal_real_plot, label=f"Data: Mode {mode}")
-        axs[1].plot(time_plot, signal_imag_plot, label=f"Data: Mode {mode}")
-        axs[0].legend()
-        axs[1].legend()
+        axs[0].plot(time_plot, signal_plot.real, label=f"Data: Mode {mode}")
+        axs[1].plot(time_plot, signal_plot.imag, label=f"Data: Mode {mode}")
+        axs[0].legend(loc='upper right')
+        axs[1].legend(loc='upper right')
         axs[0].grid()
         axs[1].grid()
-        plt.show()
-        #plt.plot(time_comb, signal_comb)
+        #plt.show()
+        plt.plot(time_comb, signal_comb)
         #plt.show()
 
-        #self.total_signal_real += np.array(signal)
-        self.time_mm = time_plot
-        self.h_data = signal_real_plot + 1j*signal_imag_plot
+        self.time_plot = time_plot
+        self.h_data = signal_plot
         self.h_fit = y_fit_real + 1j*y_fit_imag
+        if self.total_signal is None:
+            self.total_signal = self.h_data.copy()
+            self.total_fit = self.h_fit.copy()
+        else:
+            self.total_signal += self.h_data
+            self.total_fit += self.h_fit
 
     def graphs(self, waveform='h', modes=[[2,2]], n_overtones=0, shift_below=10, shift_above=75,
-               centre=13, fit_start=0):
-        #self.total_signal[:] = 0.0
+               centre=0, fit_start=0, a=None, mass_bh=None):
+        self.total_signal = None
+        self.total_fit = None
 
         for m in modes:
-            self.graph(waveform, m, n_overtones, shift_below, shift_above, centre, fit_start)
+            self.graph(waveform, m, n_overtones, shift_below, shift_above, centre, fit_start, a, mass_bh)
 
-        #plt.plot(self.time, self.total_signal) #still need to sum fit and do this in range
+        plt.plot(self.time_plot, self.total_signal.real, label='Data')
+        plt.plot(self.time_plot, self.total_fit.real, label='Fit')
+        plt.grid()
+        plt.legend()
         #plt.show()
     
-    def mismatch(self, mode=[2,2], n_overtones=0, shift_above=75):
-        for i in [0,5,10,15,20]:
-            self.graph(mode=mode, n_overtones=n_overtones, shift_below=0,
-                        shift_above=shift_above, centre=i)
-            num = simpson(self.h_data*np.conj(self.h_fit), self.time_mm)
-            den = np.sqrt(simpson(self.h_data*np.conj(self.h_data), self.time_mm)*simpson(self.h_fit*np.conj(self.h_fit), self.time_mm))
-            self.mismatch = 1-np.abs(num/den)
-            print(f"Mismatch is {self.mismatch} when delaying fit by {i} M")
+    def mismatch(self, modes=[[2,2]], n_overtones=0, shift_above=75, centre=0, fit_start=0):
+        mm_min = 1
+        mass_min = 0
+        for i in np.arange(0.9, 1 + 1e-12, 0.002):
+            self.graphs(modes=modes, n_overtones=n_overtones, shift_below=0,
+                        shift_above=shift_above, fit_start=fit_start, centre=centre, mass_bh=i)
+            mm_r = mismatch_function(self.time_plot, self.total_signal.real, self.total_fit.real)
+            mm_i = mismatch_function(self.time_plot, self.total_signal.imag, self.total_fit.imag)
+            mm = mm_r + mm_i
+            print(f"Mismatch is {mm} when mass is {i}")
+            if mm<mm_min:
+                mm_min = mm
+                mass_min = i
+        print(f"mass_bh is {mass_min} mismatch is {mm_min}")
+    
+    def mismatch_test(self):
+        for start in np.arange(0,40,10):
+            self.mismatch(fit_start=start)
+        
 
 
 test = SXSAnalysis()
-test.graphs("psi4", modes=[[2,2], [3,3], [4,4]], n_overtones=0, shift_below=10) 
-#test.mismatch()
+#test.graphs("h", modes=[[2,2], [3,3], [4,4]], n_overtones=0, shift_below=10) 
+test.mismatch()
+#test.mismatch_test()
 
 
 
 
 #Checklist
-#Start 0 at max of psi4 2,2 mode in init, make centre change from there
-#Sum fit of modes
-#Scaling
+#dt attribute

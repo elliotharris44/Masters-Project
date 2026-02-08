@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 
 R01_data = h5py.File('BAM_0125/data_R01.h5', 'r')
 
+#print(list(R01_data['rh_22'].keys()))
 rh_22 = R01_data['rh_22'] #strain of mode 2,2 at different distances
 rpsi4_20 = R01_data['rpsi4_20']
 rpsi4_22 = R01_data['rpsi4_22']
@@ -30,6 +31,6 @@ Re_psi4 = []
 for i in range(len(Rpsi4_l2_m2_r00700)):
     Re_psi4.append(Rpsi4_l2_m2_r00700[i][4])
 
-#plt.plot(time,Re_psi4)
-#plt.show()
+plt.plot(Rh_l2_m2_r00700.T[0][1000:1200],Rh_l2_m2_r00700.T[1][1000:1200])
+plt.show()
 
