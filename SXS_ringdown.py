@@ -4,6 +4,7 @@ import qnm
 import matplotlib.pyplot as plt
 import scipy
 from functions import *
+import tqdm
 
 class SXSAnalysis:
     """
@@ -24,6 +25,7 @@ class SXSAnalysis:
         peaks, _ = scipy.signal.find_peaks(psi4_22) #maybe need different peaks for real and imag
         main_peak_index = np.argmax(psi4_22[peaks])
         self.t = self.time[peaks[main_peak_index]]+20 #reduces mismatch the most
+        print(self.t)
 
     def graph(self, waveform='h', mode=[2,2], n_overtones=0,
                shift_below=10, shift_above=75, centre=0, fit_start=0, a=None, mass_bh=None):
@@ -100,9 +102,9 @@ class SXSAnalysis:
         axs[1].legend(loc='upper right')
         axs[0].grid()
         axs[1].grid()
-        #plt.show()
+        plt.show()
         plt.plot(time_comb, signal_comb)
-        #plt.show()
+        plt.show()
 
         self.time_plot = time_plot
         self.h_data = signal_plot
@@ -122,40 +124,63 @@ class SXSAnalysis:
         for m in modes:
             self.graph(waveform, m, n_overtones, shift_below, shift_above, centre, fit_start, a, mass_bh)
 
-        plt.plot(self.time_plot, self.total_signal.real, label='Data')
-        plt.plot(self.time_plot, self.total_fit.real, label='Fit')
+        plt.semilogy(self.time_plot, np.abs(self.total_signal), label='Data')
+        plt.semilogy(self.time_plot, np.abs(self.total_fit), label='Fit')
         plt.grid()
         plt.legend()
-        #plt.show()
+        plt.show()
     
-    def mismatch(self, modes=[[2,2]], n_overtones=0, shift_above=75, centre=0, fit_start=0):
-        mm_min = 1
-        mass_min = 0
-        for i in np.arange(0.9, 1 + 1e-12, 0.002):
-            self.graphs(modes=modes, n_overtones=n_overtones, shift_below=0,
-                        shift_above=shift_above, fit_start=fit_start, centre=centre, mass_bh=i)
-            mm_r = mismatch_function(self.time_plot, self.total_signal.real, self.total_fit.real)
-            mm_i = mismatch_function(self.time_plot, self.total_signal.imag, self.total_fit.imag)
-            mm = mm_r + mm_i
-            print(f"Mismatch is {mm} when mass is {i}")
-            if mm<mm_min:
-                mm_min = mm
-                mass_min = i
-        print(f"mass_bh is {mass_min} mismatch is {mm_min}")
+    def mismatch(self, modes=[[2,2]], n_overtones=0, shift_above=50, centre=0,
+                  fit_start=0, a=None, mass_bh=None):
+        self.graphs(modes=modes, n_overtones=n_overtones, shift_above=shift_above,
+                    centre=centre, fit_start=fit_start, a=a, mass_bh=mass_bh)
+        self.mm = mismatch_function(self.time_plot, self.total_signal, self.total_fit)
+        plt.close('all')
     
     def mismatch_test(self):
-        for start in np.arange(0,40,10):
-            self.mismatch(fit_start=start)
+        a_min = 0
+        mm_min = 1
+        for i in np.arange(0.6,0.8,0.01):
+            self.mismatch(a=i)
+            if self.mm<mm_min:
+                a_min=i
+                mm_min = self.mm.copy()
+        print(f"The mismatch {mm_min} is a minimum when a is {a_min}")
+    
+    def colour_plot(self):
+        spin_axis = np.arange(0.69,0.70,0.001) #x-axis
+        mass_axis = np.arange(0.945,0.965,0.001) #y-axis
+        mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
+
+        for i,spin in enumerate(tqdm.tqdm(spin_axis)):
+            for j,mass in enumerate(mass_axis):
+                self.mismatch(a=spin, mass_bh=mass)
+                mismatch_axis[j,i] = self.mm.copy()
         
+        fig, ax = plt.subplots()
+        im = ax.imshow(mismatch_axis, origin='lower', aspect='auto', extent=[spin_axis.min(), spin_axis.max(),
+            mass_axis.min(), mass_axis.max()], vmax=0.0005)
+        fig.colorbar(im, ax=ax)
+        ax.set_xlabel("Dimensionless spin contant")
+        ax.set_ylabel("Black hole mass")
+        plt.show()
+
+        min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
+        best_mass = mass_axis[min_idx[0]]
+        best_spin = spin_axis[min_idx[1]]
+        print(f"Minimum mismatch at mass={best_mass}, spin={best_spin}")
 
 
 test = SXSAnalysis()
-#test.graphs("h", modes=[[2,2], [3,3], [4,4]], n_overtones=0, shift_below=10) 
-test.mismatch()
+#test.graphs("h", modes=[[2,2], [3,3]], n_overtones=0, shift_below=10) 
+#test.mismatch()
 #test.mismatch_test()
+#test.colour_plot()
 
 
 
 
 #Checklist
-#dt attribute
+#check effect of shift above
+#reduce length to 50 as reduces error
+#make more efficient
