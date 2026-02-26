@@ -4,6 +4,7 @@ import h5py
 import matplotlib.pyplot as plt
 import scipy
 from functions import *
+import tqdm
 
 class CoReAnalysis:
     """
@@ -12,15 +13,15 @@ class CoReAnalysis:
     def __init__(self):
         self.R01_data = h5py.File('BAM_0125/data_R01.h5', 'r')
 
-        psi4_22 = self.R01_data['rpsi4_22']['Rpsi4_l2_m2_r00750.txt'][:]
+        psi4_22 = self.R01_data['rpsi4_22']['Rpsi4_l2_m2_r01000.txt'][:]
         self.time = psi4_22.T[0]
         psi4_22 = psi4_22.T[1] #real part
         peaks, _ = scipy.signal.find_peaks(psi4_22) #maybe need different peaks for real and imag
         main_peak_index = np.argmax(psi4_22[peaks])
-        self.t = self.time[peaks[main_peak_index]] + 35 #minimises mismatch
+        self.t = self.time[peaks[main_peak_index]] + 33 #minimises mismatch
 
     def graph(self, waveform='h', n_overtones=0,
-               shift_below=10, shift_above=75, centre=0, fit_start=0, a=None, mass_bh=None):
+               shift_below=0, shift_above=50, centre=0, fit_start=0, a=None, mass_bh=None):
         """
         Arguments: 
         waveform(string): h for strain, 22 ect for psi4 l=2, m=2 mode
@@ -31,13 +32,13 @@ class CoReAnalysis:
         fig, axs = plt.subplots(2, 1)
 
         time = self.time
+        mass_total = 2.966531 #should it be adm mass or sum
         if mass_bh is None:
-            mass_bh = 2.966531 #make more general, should I be using rest mass?, adm?
-        mass_total = 1.500237 + 1.500237
+            mass_bh = 2.93/mass_total #guess adm - disk
 
         if waveform=='h':
             series = self.R01_data['rh_22'] #strain for l=2, m=2
-            series_1000 = series['Rh_l2_m2_r00750.txt'][:] #at radius 1000Msun, 9 columns, time, Re(strain) ect
+            series_1000 = series['Rh_l2_m2_r01000.txt'][:] #at radius 1000M, 9 columns, time, Re(strain) ect
 
         else:
             try:
@@ -75,10 +76,10 @@ class CoReAnalysis:
             else:
                 grav_220 = qnm.modes_cache(s=-2,l=waveform[0],m=waveform[1],n=n)
             if a is None:
-                omega, _, _ = grav_220(0.78)
+                omega, _, _ = grav_220(0.65)
             else:
                 omega, _, _ = grav_220(a)
-            omega = omega*mass_total/mass_bh
+            omega = omega/mass_bh
             omegas.append(np.real(omega))
             taus.append(-1/np.imag(omega))
             p0 += [0.1, 0] #parameter guesses
@@ -107,34 +108,65 @@ class CoReAnalysis:
         axs[0].grid()
         axs[1].grid()
         plt.show()
+        plt.plot(time_comb, signal_comb)
+        plt.show()
 
         self.time_plot = time_plot
         self.signal_plot = signal_plot
         self.signal_fit = y_fit_real + 1j*y_fit_imag
 
-    def mismatch(self, n_overtones=0, shift_above=75, centre=0, fit_start=0):
-        mm_min = 1
-        a_min = 0
-        for i in np.arange(0.6, 0.85 + 1e-12, 0.01):
-            self.graph(n_overtones=n_overtones, shift_below=0,
-                        shift_above=shift_above, fit_start=fit_start, centre=centre, a=i)
-            mm_r = mismatch_function(self.time_plot, np.real(self.signal_plot), np.real(self.signal_fit))
-            mm_i = mismatch_function(self.time_plot, np.imag(self.signal_plot), np.imag(self.signal_fit))
-            mm = mm_r + mm_i
-            print(f"Mismatch is {mm} when a is {i}")
-            if mm<mm_min:
-                mm_min = mm
-                a_min = i
-        print(f"a is {a_min} mismatch {mm_min}")
+        plt.semilogy(time_plot, np.abs(signal_plot), label='Data')
+        #plt.semilogy(time_plot, np.abs(self.signal_fit), label='Fit')
+        plt.grid()
+        plt.legend()
+        plt.show()
 
+    def mismatch(self, n_overtones=0, shift_above=50, centre=0,
+                  fit_start=0, a=None, mass_bh=None):
+        self.graph(n_overtones=n_overtones, shift_above=shift_above,
+                    centre=centre, fit_start=fit_start, a=a, mass_bh=mass_bh)
+        self.mm = mismatch_function(self.time_plot, self.signal_plot, self.signal_fit)
+        #print(self.mm)
+        plt.close('all')
+    
     def mismatch_test(self):
-        for centre in np.arange(0,40,10):
-            self.mismatch(centre=centre)
+        a_min = 0
+        mm_min = 1
+        for i in np.arange(20,40,1):
+            self.mismatch(centre=i)
+            if self.mm<mm_min:
+                a_min=i
+                mm_min = self.mm.copy()
+        print(f"The mismatch {mm_min} is a minimum when centre is {a_min}")
+    
+    def colour_plot(self):
+        spin_axis = np.arange(0.1,0.9,0.05) #x-axis
+        mass_axis = np.arange(0.8,1,0.01) #y-axis
+        mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
+
+        for i,spin in enumerate(tqdm.tqdm(spin_axis)):
+            for j,mass in enumerate(mass_axis):
+                self.mismatch(a=spin, mass_bh=mass)
+                mismatch_axis[j,i] = self.mm.copy()
+        
+        fig, ax = plt.subplots()
+        im = ax.imshow(mismatch_axis, origin='lower', aspect='auto', extent=[spin_axis.min(), spin_axis.max(),
+            mass_axis.min(), mass_axis.max()])
+        fig.colorbar(im, ax=ax)
+        ax.set_xlabel("Dimensionless spin contant")
+        ax.set_ylabel("Black hole mass")
+        plt.show()
+
+        min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
+        best_mass = mass_axis[min_idx[0]]
+        best_spin = spin_axis[min_idx[1]]
+        print(f"Minimum mismatch at mass={best_mass}, spin={best_spin}")
 
 test = CoReAnalysis()
-test.graph("h", n_overtones=0)
+test.graph("h", shift_below=-34, shift_above=100)
 #test.mismatch()
+#test.colour_plot()
+#test.mismatch_test()
 
 #Checklist
-#find best centre
-#check scaling
+#check mismatch still works normal
