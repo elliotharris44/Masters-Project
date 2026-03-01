@@ -10,18 +10,11 @@ class CoReAnalysis:
     """
     
     """
-    def __init__(self):
-        self.R01_data = h5py.File('BAM_0125/data_R01.h5', 'r')
+    def __init__(self, id = "BAM_0125/data_R01.h5"):
+        self.R01_data = h5py.File(id, 'r')
 
-        psi4_22 = self.R01_data['rpsi4_22']['Rpsi4_l2_m2_r01000.txt'][:]
-        self.time = psi4_22.T[0]
-        psi4_22 = psi4_22.T[1] #real part
-        peaks, _ = scipy.signal.find_peaks(psi4_22) #maybe need different peaks for real and imag
-        main_peak_index = np.argmax(psi4_22[peaks])
-        self.t = self.time[peaks[main_peak_index]] + 33 #minimises mismatch
-
-    def graph(self, waveform='h', n_overtones=0,
-               shift_below=0, shift_above=50, centre=0, fit_start=0, a=None, mass_bh=None):
+    def graph(self, waveform='h', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, 
+              ring_start=29, fit_start=22, fit_length=50, a=None, mass_bh=None, plot=True, skew=True):
         """
         Arguments: 
         waveform(string): h for strain, 22 ect for psi4 l=2, m=2 mode
@@ -29,12 +22,10 @@ class CoReAnalysis:
         min_time(int): is the minimum time
         max_time(int): is the cutoff time
         """
-        fig, axs = plt.subplots(2, 1)
 
-        time = self.time
-        mass_total = 2.966531 #should it be adm mass or sum
+        mass_total = 3.000475 #should it be adm mass or sum
         if mass_bh is None:
-            mass_bh = 2.93/mass_total #guess adm - disk
+            mass_bh = 2.46 #guess 95%
 
         if waveform=='h':
             series = self.R01_data['rh_22'] #strain for l=2, m=2
@@ -50,22 +41,25 @@ class CoReAnalysis:
             series_1000 = series[f'Rpsi4_l{waveform[0]}_m{waveform[1]}_r01000.txt'][:]
 
         signal = series_1000.T[1] + 1j*series_1000.T[2]
+        time = series_1000.T[0]
 
-        t = self.t+centre
-        max_t = t+shift_above #change to time[-1]?
-        min = np.abs(time-t).argmin()
-        max = np.abs(time-max_t).argmin()
-        time_ring = time[min:max]
-        time_shift = time_ring - time_ring[0] #put all in init
+        peaks, _ = scipy.signal.find_peaks(signal.real) #maybe need different peaks for real and imag
+        main_peak_index = np.argmax(signal.real[peaks])
+        peak_t = time[peaks[main_peak_index]] 
 
-        dt = time_shift[1]-time_shift[0]
-        time_fit = time_shift[int(fit_start/dt):]
-        time_plot = time[min-int(shift_below/dt):max] - time_ring[0]
+        time_shift = time-peak_t #t=0 is at peak, full time
+        t_min = np.abs(time_shift-(ring_start+fit_start)).argmin() #start of fit arg
+        t_max = np.abs(time_shift-(time_shift[t_min]+fit_length)).argmin() #end of fit arg
+        time_fit = time_shift[t_min:t_max]-ring_start
+        self.N = t_max-t_min #for scaled mismatch
 
-        signal_ring = signal[min+int(fit_start/dt):max]
-        signal_plot = signal[min-int(shift_below/dt):max]
-        signal_comb = np.concatenate([np.real(signal_ring), np.imag(signal_ring)])
-        time_comb = np.concatenate([time_fit, time_fit+time_fit[-1]+dt])
+        signal_fit = signal[t_min:t_max]
+        m_r, c_r = np.polyfit(time_fit, signal_fit.real, 1)
+        m_i, c_i = np.polyfit(time_fit, signal_fit.imag, 1)
+        if skew:
+            signal_fit += (m_r*time_fit+c_r) + 1j*(m_i*time_fit+c_i)
+        signal_comb = np.concatenate([signal_fit.real, signal_fit.imag])
+        time_comb = np.concatenate([time_fit, time_fit+time_fit[-1]-time_fit[0]]) #potential error with two time coordinates the same
 
         p0 = []
         omegas = []
@@ -76,72 +70,91 @@ class CoReAnalysis:
             else:
                 grav_220 = qnm.modes_cache(s=-2,l=waveform[0],m=waveform[1],n=n)
             if a is None:
-                omega, _, _ = grav_220(0.65)
+                omega, _, _ = grav_220(0.66)
             else:
                 omega, _, _ = grav_220(a)
-            omega = omega/mass_bh
+            omega = omega*mass_total/mass_bh
             omegas.append(np.real(omega))
             taus.append(-1/np.imag(omega))
-            p0 += [0.1, 0] #parameter guesses
+            p0 += [0.01, 0] #parameter guesses
 
-        popt, pcov = scipy.optimize.curve_fit(ringdown_comb(omegas, taus), time_comb, signal_comb, p0)
+        popt, _ = scipy.optimize.curve_fit(ringdown_comb(omegas, taus), time_comb, signal_comb, p0)
         
-        y_fit_real = ringdown_real(omegas, taus)(time_plot, *popt)
-        y_fit_imag = ringdown_imag(omegas, taus)(time_plot, *popt)
-        
-        for n in range(n_overtones+1):
-            A = popt[2*n]
-            phi = popt[2*n + 1]
-            #print(f"Overtone {n}: "f"A = {A:.4e}, "f"phi = {phi:.3f}, "f"omega = {omegas[n]:.4f}, "f"tau = {taus[n]:.4f}")
+        plot_min = np.abs(time_shift-plot_start).argmin()
+        plot_max = np.abs(time_shift-(time_shift[t_max]+plot_end)).argmin()
+        time_plot = time_shift[plot_min:plot_max]
+        signal_plot = signal[plot_min:plot_max]
+        if skew:
+            signal_plot += (m_r*time_plot+c_r) + 1j*(m_i*time_plot+c_i)
 
-        axs[0].plot(time_plot, y_fit_real, label="Fit")
-        axs[1].plot(time_plot, y_fit_imag, label="Fit")
-        axs[0].axvline(0, color='black', linestyle=':', label='Start of Ringdown')
-        axs[1].axvline(0, color='black', linestyle=':', label='Start of Ringdown')
-        axs[0].axvline(fit_start, color='grey', linestyle=':', label='Start of Fitting')
-        axs[1].axvline(fit_start, color='grey', linestyle=':', label='Start of Fitting')
+        y_fit_real = ringdown_real(omegas, taus)(time_plot-ring_start, *popt)
+        y_fit_imag = ringdown_imag(omegas, taus)(time_plot-ring_start, *popt)
         
-        axs[0].plot(time_plot, np.real(signal_plot), label=f"Data")
-        axs[1].plot(time_plot, np.imag(signal_plot), label=f"Data")
-        axs[0].legend(loc='upper right')
-        axs[1].legend(loc='upper right')
-        axs[0].grid()
-        axs[1].grid()
-        plt.show()
-        plt.plot(time_comb, signal_comb)
-        plt.show()
+        if plot:
+            _, axs = plt.subplots(2, 1)
+            axs[0].plot(time_plot, y_fit_real, label="Fit")
+            axs[1].plot(time_plot, y_fit_imag, label="Fit")
+            axs[0].axvline(ring_start, color='black', linestyle=':', label='Start of Ringdown')
+            axs[1].axvline(ring_start, color='black', linestyle=':', label='Start of Ringdown')
+            axs[0].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
+            axs[1].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
+            
+            axs[0].plot(time_plot, signal_plot.real, label=f"Data: Mode {mode}")
+            axs[1].plot(time_plot, signal_plot.imag, label=f"Data: Mode {mode}")
+            axs[0].legend(loc='upper right', fontsize='small')
+            axs[1].legend(loc='upper right', fontsize='small')
+            axs[0].grid()
+            axs[1].grid()
+            plt.show()
+            plt.plot(time_comb, signal_comb)
+            plt.show()
+            plt.plot(time_plot, signal_plot.real-y_fit_real)
+            plt.show()
 
         self.time_plot = time_plot
         self.signal_plot = signal_plot
         self.signal_fit = y_fit_real + 1j*y_fit_imag
+        self.fit_min = np.abs(time_plot-(ring_start+fit_start)).argmin()
+        self.fit_max = np.abs(time_plot-(time_plot[self.fit_min]+fit_length)).argmin()
 
-        plt.semilogy(time_plot, np.abs(signal_plot), label='Data')
-        #plt.semilogy(time_plot, np.abs(self.signal_fit), label='Fit')
-        plt.grid()
-        plt.legend()
-        plt.show()
+        mi = self.fit_min
+        ma = self.fit_max
+        if plot:
+            plt.semilogy(time_plot[mi:ma], np.abs(signal_plot[mi:ma]), label='Data')
+            plt.semilogy(time_plot[mi:ma], np.abs(self.signal_fit[mi:ma]), label='Fit')
+            plt.grid()
+            plt.legend()
+            plt.show()
 
-    def mismatch(self, n_overtones=0, shift_above=50, centre=0,
-                  fit_start=0, a=None, mass_bh=None):
-        self.graph(n_overtones=n_overtones, shift_above=shift_above,
-                    centre=centre, fit_start=fit_start, a=a, mass_bh=mass_bh)
-        self.mm = mismatch_function(self.time_plot, self.signal_plot, self.signal_fit)
+    def mismatch(self, mode=[2,2], n_overtones=0, ring_start=48, fit_start=3,
+                  fit_length=50, a=None, mass_bh=None, plot=False, skew=False):
+        self.graph(mode=mode, n_overtones=n_overtones, ring_start=ring_start, fit_start=fit_start,
+                    fit_length=fit_length, a=a, mass_bh=mass_bh, plot=plot, skew=skew)
+        mi = self.fit_min
+        ma = self.fit_max
+        self.mm = mismatch_function(self.time_plot[mi:ma], self.signal_plot[mi:ma], self.signal_fit[mi:ma])
         #print(self.mm)
-        plt.close('all')
     
     def mismatch_test(self):
-        a_min = 0
-        mm_min = 1
-        for i in np.arange(20,40,1):
-            self.mismatch(centre=i)
-            if self.mm<mm_min:
-                a_min=i
-                mm_min = self.mm.copy()
-        print(f"The mismatch {mm_min} is a minimum when centre is {a_min}")
+        test_param1 = np.arange(0,60,1)
+        test_param2 = np.arange(0,50,1)
+        #mm = []
+        mismatch_axis = np.zeros((len(test_param2), len(test_param1)))
+        for i,param1 in enumerate(test_param1):
+            for k,param2 in enumerate(test_param2):
+                self.mismatch(ring_start=param1, fit_start=param2)
+                mismatch_axis[k,i] = self.mm.copy()
+        # print(f"The mismatch {np.min(mm)} is a minimum when parameter is {test_param[np.argmin(mm)]}")
+        # plt.plot(test_param, mm)
+        # plt.show()
+
+        min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
+        print(f"Minimum mismatch at param1={test_param1[min_idx[1]]}, param2={test_param2[min_idx[0]]}")
+        print(mismatch_axis[min_idx[0], min_idx[1]]/self.N)
     
     def colour_plot(self):
-        spin_axis = np.arange(0.1,0.9,0.05) #x-axis
-        mass_axis = np.arange(0.8,1,0.01) #y-axis
+        spin_axis = np.arange(0.1,0.9,0.02) #x-axis
+        mass_axis = np.arange(2,2.7,0.01) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
@@ -150,7 +163,7 @@ class CoReAnalysis:
                 mismatch_axis[j,i] = self.mm.copy()
         
         fig, ax = plt.subplots()
-        im = ax.imshow(mismatch_axis, origin='lower', aspect='auto', extent=[spin_axis.min(), spin_axis.max(),
+        im = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[spin_axis.min(), spin_axis.max(),
             mass_axis.min(), mass_axis.max()])
         fig.colorbar(im, ax=ax)
         ax.set_xlabel("Dimensionless spin contant")
@@ -163,8 +176,8 @@ class CoReAnalysis:
         print(f"Minimum mismatch at mass={best_mass}, spin={best_spin}")
 
 test = CoReAnalysis()
-test.graph("h", shift_below=-34, shift_above=100)
-#test.mismatch()
+test.graph(plot_start=40, ring_start=40, fit_start=0, fit_length=50, a=0.66, skew=False)
+#test.mismatch(ring_start=50, fit_start=0, fit_length=25, a=0.14, mass_bh=2.27)
 #test.colour_plot()
 #test.mismatch_test()
 

@@ -3,7 +3,7 @@ import qnm
 import h5py
 import matplotlib.pyplot as plt
 
-R01_data = h5py.File('BAM_0125/data_R01.h5', 'r')
+R01_data = h5py.File("BAM_0125/data_R01.h5", 'r')
 
 #print(list(R01_data['rh_22'].keys()))
 rh_22 = R01_data['rh_22'] #strain of mode 2,2 at different distances

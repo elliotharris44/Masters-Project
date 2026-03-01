@@ -2,8 +2,9 @@ import numpy as np
 import sxs
 import qnm
 import matplotlib.pyplot as plt
+import matplotlib
 
-sim = sxs.load("SXS:BBH:0305")
+sim = sxs.load("SXS:NSNS:0003")
 
 strain = sim.strain
 
@@ -20,6 +21,11 @@ time = strain.time
 h_plus = h.real
 h_cross = h.imag
 
-print(sim.keys())
-#plt.plot(time,h_cross)
-#plt.show()
+#print(dir(strain.data))
+#print(len(h_plus))
+start = 5900
+end = 8000
+plt.plot(time[start:end],h_cross[start:end])
+#plt.plot(time[start:end],h_plus[start:end])
+plt.show()
+
