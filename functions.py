@@ -10,7 +10,8 @@ def ringdown_comb(omegas, taus):
             A = params[2*n]
             phi = params[2*n+1]
             sig[:start] += A * np.exp(-t[:start]/taus[n]) * np.cos(omegas[n]*t[:start] + phi)
-            sig[start:] += -A * np.exp(-t[start:]/taus[n]) * np.sin(omegas[n]*t[start:] + phi)
+            t_shifted = t[start:] - t[start] + t[0]
+            sig[start:] += - A * np.exp(-t_shifted/taus[n]) * np.sin(omegas[n]*t_shifted + phi) 
         return sig
     return model
 
