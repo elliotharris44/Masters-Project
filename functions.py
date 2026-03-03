@@ -5,7 +5,7 @@ def ringdown_comb(omegas, taus):
     def model(t, *params):
         start = len(t)//2
         sig = np.zeros_like(t)
-        N = len(params)//2
+        N = len(params)//2 
         for n in range(N):
             A = params[2*n]
             phi = params[2*n+1]
@@ -41,3 +41,43 @@ def mismatch_function(time, data, fit):
     num = simpson(data*np.conj(fit), time)
     den = np.sqrt(simpson(data*np.conj(data), time)*simpson(fit*np.conj(fit), time))
     return 1-np.abs(num/den)
+
+def ringdown_comb_lin(omegas, taus):
+    def model(t, *params):
+        start = len(t)//2
+        sig = np.zeros_like(t)
+        N = (len(params)-4)//2 #last 4 terms, m_r,c_r,m_i,c_i
+        t_shifted = t[start:] - t[start] + t[0]
+        for n in range(N):
+            A = params[2*n]
+            phi = params[2*n+1]
+            sig[:start] += A * np.exp(-t[:start]/taus[n]) * np.cos(omegas[n]*t[:start] + phi)
+            sig[start:] += - A * np.exp(-t_shifted/taus[n]) * np.sin(omegas[n]*t_shifted + phi)
+        sig[:start] += params[-3] + params[-4]*t[start:]
+        sig[start:] += params[-1] + params[-2]*t_shifted
+        return sig
+    return model
+
+def ringdown_real_lin(omegas, taus):
+    def model(t, *params):
+        sig = np.zeros_like(t)
+        N = (len(params)-4)//2 #last 2 m_r, c_r
+        for n in range(N):
+            A = params[2*n]
+            phi = params[2*n+1]
+            sig += A * np.exp(-t/taus[n]) * np.cos(omegas[n]*t + phi)
+        sig += params[-3] + params[-4]*t
+        return sig
+    return model
+
+def ringdown_imag_lin(omegas, taus):
+    def model(t, *params):
+        sig = np.zeros_like(t)
+        N = (len(params)-4)//2
+        for n in range(N):
+            A = params[2*n]
+            phi = params[2*n+1]
+            sig += -A * np.exp(-t/taus[n]) * np.sin(omegas[n]*t + phi)
+        sig += params[-1] + params[-2]*t
+        return sig
+    return model
