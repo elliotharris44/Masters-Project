@@ -145,7 +145,7 @@ class SXSAnalysis:
         self.mm = mismatch_function(self.time_plot[mi:ma], self.total_signal[mi:ma], self.total_fit[mi:ma])
         #print(self.mm)
     
-    def mismatch_test(self):
+    def mismatch_test1(self):
         test_param = []
         mm = []
         for i in np.arange(3,60,1):
@@ -156,6 +156,27 @@ class SXSAnalysis:
         plt.plot(test_param, mm)
         plt.show()
     
+    def mismatch_test2(self):
+        test_param1 = np.arange(0,80,1)
+        test_param2 = np.arange(40,100,1)
+        mismatch_axis = np.zeros((len(test_param2), len(test_param1)))
+        for i,param1 in enumerate(tqdm.tqdm(test_param1)):
+            for k,param2 in enumerate(test_param2):
+                self.mismatch(ring_start=param1, fit_length=param2)
+                mismatch_axis[k,i] = self.mm.copy() #to encourage long signals
+
+        fig, ax = plt.subplots()
+        im = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[test_param1.min(), test_param1.max(),
+            test_param2.min(), test_param2.max()])
+        fig.colorbar(im, ax=ax)
+        ax.set_xlabel("Start of Ringdown")
+        ax.set_ylabel("Length of Fitted Region")
+        plt.show()
+
+        min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
+        print(f"Minimum mismatch at ring_start={test_param1[min_idx[1]]}, length={test_param2[min_idx[0]]}")
+        print(mismatch_axis[min_idx[0], min_idx[1]])
+
     def colour_plot(self):
         spin_axis = np.arange(0.65,0.75,0.001) #x-axis
         mass_axis = np.arange(0.945,0.975,0.001) #y-axis
@@ -180,12 +201,12 @@ class SXSAnalysis:
         best_mm = mismatch_axis[min_idx[0],min_idx[1]]
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
-
-test = SXSAnalysis("SXS:BBH:0305")
-test.graphs(modes=[[2,2]], plot_start=0, ring_start=0, fit_length=300) 
-#test.mismatch()
-#test.mismatch_test()
-#test.colour_plot()
+if __name__ == "__main__":
+    test = SXSAnalysis("SXS:BBH:0389")
+    test.graphs(modes=[[2,2]], plot_start=50, ring_start=50, fit_length=100) 
+    #test.mismatch()
+    #test.mismatch_test2()
+    #test.colour_plot()
 
 
 

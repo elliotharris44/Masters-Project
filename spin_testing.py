@@ -20,12 +20,20 @@ for i,a in enumerate(a_vals):
 # plt.ylabel('Decay Constant')
 # plt.show()
 
-mass_ratio = np.linspace(0.2,1,500)
-change = []
-for j,mass in enumerate(mass_ratio):
-    a = a_vals[np.abs(freq-0.6*mass).argmin()] #0.628 from BAM:0125 data
-    tau_a = tau[np.abs(freq-0.6*mass).argmin()]
-    change.append(np.abs((7-tau_a*mass)*100/7)) #percentage difference, 6.65 from data
-print(mass_ratio[np.array(change).argmin()])
-plt.plot(mass_ratio, change)
-plt.show()
+mismatch = np.zeros_like(a_vals)
+Mf_vals  = np.zeros_like(a_vals)
+tau_data = 12.79
+freq_data = 0.59
+
+for i in range(len(a_vals)):
+    Mf_from_tau  = tau_data/tau[i]
+    Mf_from_freq = freq[i]/freq_data
+    Mf_vals[i] = 0.5 * (Mf_from_tau + Mf_from_freq)
+    mismatch[i] = abs(Mf_from_tau - Mf_from_freq)
+
+best_index = np.argmin(mismatch)
+best_a  = a_vals[best_index]
+best_Mf = Mf_vals[best_index]
+
+print(best_a)
+print(best_Mf)
