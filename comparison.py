@@ -7,12 +7,13 @@ import scipy
 nsns = CoReAnalysis("BAM_0125/data_R01.h5")
 bhbh = SXSAnalysis("SXS:BBH:0389")
 
-m_total = 3.000475
+m_total = 2.966531 #adm
+m_bh_init = 0.993 #total initial adm
 m_solar = 1.98847e30
 G = 6.67430e-11
 c = 299792458
 
-nsns.graph(waveform='22', plot_start=50, ring_start=50, fit_length=50, plot=False)
+nsns.graph(waveform='22', plot_start=64, ring_start=64, fit_length=50, plot=False)
 time_ns = nsns.time_plot
 time_ns -= time_ns[0]
 signal_ns = nsns.signal_plot
@@ -31,7 +32,7 @@ peaks_bh, _ = scipy.signal.find_peaks(signal_bh.real)
 peak_idx_bh = peaks_bh[0]
 time_bh = time_bh[peak_idx_bh:] - time_bh[peak_idx_bh]
 signal_bh = signal_bh[peak_idx_bh:]
-time_bh = time_bh*m_total*m_solar*G*1000/(c**3) #time in ms
+time_bh = time_bh*m_total*m_solar*G*1000/(m_bh_init*c**3) #time in ms
 scaled_signal_bh = signal_bh.real/signal_bh.real[0]
 
 plt.plot(time_ns, scaled_signal_ns, label="NS-NS Merger")
