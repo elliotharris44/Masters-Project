@@ -194,7 +194,7 @@ class CoReAnalysis:
 
 if __name__ == "__main__":
     test = CoReAnalysis()
-    test.graph(waveform='22', n_overtones=2, plot_start=40, ring_start=40, fit_start=0, fit_length=50, skew=False)
+    test.graph(waveform='22', n_overtones=2, plot_start=0, ring_start=0, fit_start=0, fit_length=100, skew=False)
     #test.mismatch(waveform='22')
     #test.colour_plot()
     #test.mismatch_test2()
