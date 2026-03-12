@@ -26,8 +26,10 @@ class SXSAnalysis:
         self.total_signal = None
         self.total_fit = None
 
+        self.mass_total = self.sim.metadata['initial_ADM_energy']
+
     def graph(self, waveform='h', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, 
-              ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True):
+              ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True):
         """
         Arguments
         waveform(string): h, psi4
@@ -35,7 +37,6 @@ class SXSAnalysis:
         """
 
         time = self.time
-        mass_total = self.sim.metadata['initial_mass1'] + self.sim.metadata['initial_mass2']
         if mass_bh is None:
             mass_bh = self.sim.metadata['remnant_mass']
             if isinstance(mass_bh,str) and mass_bh=='NaN':
@@ -72,7 +73,7 @@ class SXSAnalysis:
                 omega, _, _ = grav_220(self.a)
             else:
                 omega, _, _ = grav_220(a)
-            omega = omega*mass_total/mass_bh
+            omega = omega*self.mass_total/mass_bh
             omegas.append(np.real(omega))
             taus.append(-1/np.imag(omega))
             p0 += [0.1, 0] #parameter guesses
@@ -86,15 +87,25 @@ class SXSAnalysis:
 
         y_fit_real = ringdown_real(omegas, taus)(time_plot-ring_start, *popt)
         y_fit_imag = ringdown_imag(omegas, taus)(time_plot-ring_start, *popt)
+
+        self.time_plot = time_plot
+        self.h_data = signal_plot
+        self.h_fit = y_fit_real + 1j*y_fit_imag
+        self.fit_min = np.abs(time_plot-(ring_start+fit_start)).argmin()
+        self.fit_max = np.abs(time_plot-(time_plot[self.fit_min]+fit_length)).argmin()
+        mi = self.fit_min
+        ma = self.fit_max
         
-        if plot is True:
+        if plot:
             _, axs = plt.subplots(2, 1)
-            axs[0].plot(time_plot, y_fit_real, label="Fit")
-            axs[1].plot(time_plot, y_fit_imag, label="Fit")
+            if fit:
+                axs[0].plot(time_plot, y_fit_real, label="Fit")
+                axs[1].plot(time_plot, y_fit_imag, label="Fit")
+                axs[0].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
+                axs[1].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
             axs[0].axvline(ring_start, color='black', linestyle=':', label='Start of Ringdown')
             axs[1].axvline(ring_start, color='black', linestyle=':', label='Start of Ringdown')
-            axs[0].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
-            axs[1].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
+            
             
             axs[0].plot(time_plot, signal_plot.real, label=f"Data: Mode {mode}")
             axs[1].plot(time_plot, signal_plot.imag, label=f"Data: Mode {mode}")
@@ -103,14 +114,14 @@ class SXSAnalysis:
             axs[0].grid()
             axs[1].grid()
             plt.show()
-            plt.plot(time_comb, signal_comb)
+            #plt.plot(time_comb, signal_comb)
+            #plt.show()
+            plt.semilogy(time_plot[mi:ma], np.abs(signal_plot[mi:ma]), label='Data')
+            plt.semilogy(time_plot[mi:ma], np.abs(self.h_fit[mi:ma]), label='Fit')
+            plt.grid()
+            plt.legend()
             plt.show()
 
-        self.time_plot = time_plot
-        self.h_data = signal_plot
-        self.h_fit = y_fit_real + 1j*y_fit_imag
-        self.fit_min = np.abs(time_plot-(ring_start+fit_start)).argmin()
-        self.fit_max = np.abs(time_plot-(time_plot[self.fit_min]+fit_length)).argmin()
         if self.total_signal is None:
             self.total_signal = self.h_data.copy()
             self.total_fit = self.h_fit.copy()
@@ -119,12 +130,12 @@ class SXSAnalysis:
             self.total_fit += self.h_fit
 
     def graphs(self, waveform='h', modes=[[2,2]], n_overtones=0, plot_start=0, plot_end=0, 
-              ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True):
+              ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True):
         self.total_signal = None
         self.total_fit = None
 
         for m in modes:
-            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot)
+            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, fit)
 
         if plot is True:
             mi = self.fit_min
@@ -179,7 +190,7 @@ class SXSAnalysis:
 
     def colour_plot(self):
         spin_axis = np.arange(0.65,0.75,0.001) #x-axis
-        mass_axis = np.arange(0.945,0.975,0.001) #y-axis
+        mass_axis = np.arange(0.925,0.975,0.001) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
@@ -203,10 +214,10 @@ class SXSAnalysis:
 
 if __name__ == "__main__":
     test = SXSAnalysis("SXS:BBH:0389")
-    test.graphs(modes=[[2,2]], plot_start=50, ring_start=50, fit_length=100) 
+    #test.graphs(modes=[[2,2]], plot_start=-30, a=0.691, mass_bh=0.946, fit=False) 
     #test.mismatch()
     #test.mismatch_test2()
-    #test.colour_plot()
+    test.colour_plot()
 
 
 
