@@ -22,8 +22,8 @@ for i,a in enumerate(a_vals):
 
 mismatch = np.zeros_like(a_vals)
 Mf_vals  = np.zeros_like(a_vals)
-tau_data = 12.79
-freq_data = 0.59
+tau_data = 7
+freq_data = 0.6
 
 for i in range(len(a_vals)):
     Mf_from_tau  = tau_data/tau[i]

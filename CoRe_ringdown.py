@@ -11,19 +11,20 @@ class CoReAnalysis:
     
     """
     def __init__(self, id = "BAM_0125"):
-        self.id_R01 = "Data/" + id + "/R01"
+        self.id_R01 = "Data_Tests/" + id + "/R01"
         self.R01_data = h5py.File(self.id_R01 + "/data.h5", 'r')
 
         with open(self.id_R01 + "/metadata.txt") as f:
             for line in f:
-                if line.startswith("id_ADM_mass"):
+                if line.startswith("id_mass "):
                     self.mass_total = float(line.split("=")[1].strip())
+        print(f"Total mass is {self.mass_total}")
         
         self.total_signal = None
         self.total_fit = None
 
     def graph(self, waveform='psi4', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, ring_start=64,
-               fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, skew=False, fit=True, neg_freq=True):
+               fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, skew=False, fit=True, neg_freq=False):
         """
         Arguments: 
         waveform(string): h for strain, 22 ect for psi4 l=2, m=2 mode
@@ -35,12 +36,14 @@ class CoReAnalysis:
             mass_bh = 2.911 
 
         if waveform=='h':
-            series = self.R01_data['rh_22'] #strain for l=2, m=2
-            series_1000 = series['Rh_l2_m2_r01000.txt'][:] #at radius 1000M, 9 columns, time, Re(strain) ect
+            series = self.R01_data[f'rh_{str(mode[0])}{str(mode[1])}']
+            keys = list(series.keys())
+            series_1000 = series[keys[-1]][:]
 
         else:
             series = self.R01_data[f'rpsi4_{str(mode[0])}{str(mode[1])}']
-            series_1000 = series[f'Rpsi4_l{str(mode[0])}_m{str(mode[1])}_r01000.txt'][:]
+            keys = list(series.keys())
+            series_1000 = series[keys[-1]][:]
 
         signal = series_1000.T[1] + 1j*series_1000.T[2]
         time = series_1000.T[0]
@@ -117,8 +120,8 @@ class CoReAnalysis:
             
             axs[0].plot(time_plot, signal_plot.real, label=f"Data: Mode {mode}")
             axs[1].plot(time_plot, signal_plot.imag, label=f"Data: Mode {mode}")
-            axs[0].legend(loc='upper right', fontsize='small')
-            axs[1].legend(loc='upper right', fontsize='small')
+            axs[0].legend(loc='upper right', fontsize='x-small')
+            axs[1].legend(loc='upper right', fontsize='x-small')
             axs[0].grid()
             axs[1].grid()
             plt.show()
@@ -196,14 +199,14 @@ class CoReAnalysis:
         print(f"Minimum mismatch at ring_start={test_param1[min_idx[1]]}, length={test_param2[min_idx[0]]}")
         print(mismatch_axis[min_idx[0], min_idx[1]])
     
-    def colour_plot(self):
-        spin_axis = np.arange(0.75,0.85,0.001) #x-axis
-        mass_axis = np.arange(2.9,3,0.001) #y-axis
+    def colour_plot(self, ring_start=64, fit_length=50):
+        spin_axis = np.arange(0.3,0.85,0.01) #x-axis
+        mass_axis = np.arange(2.4,3,0.01) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
             for j,mass in enumerate(mass_axis):
-                self.mismatch(a=spin, mass_bh=mass)
+                self.mismatch(ring_start=ring_start, fit_length=fit_length, a=spin, mass_bh=mass)
                 mismatch_axis[j,i] = self.mm.copy()
         
         fig, ax = plt.subplots()
@@ -221,11 +224,11 @@ class CoReAnalysis:
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
 if __name__ == "__main__":
-    test = CoReAnalysis()
-    test.graphs(waveform='psi4', modes=[[2,2], [3,3], [4,4]], n_overtones=0, plot_start=60, fit_length=36,
-                a=0.8, mass_bh=2.924, fit=False, neg_freq=True)
+    test = CoReAnalysis("BAM_0099")
+    test.graphs(waveform='psi4', modes=[[2,2]], n_overtones=0, plot_start=65, ring_start=66, fit_length=30,
+                a=0.764, mass_bh=2.630, fit=False, neg_freq=True)
     #test.mismatch(waveform='22')
-    #test.colour_plot()
+    #test.colour_plot(ring_start=50, fit_length=50)
     #test.mismatch_test2()
 
 #Checklist

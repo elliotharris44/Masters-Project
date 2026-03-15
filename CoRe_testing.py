@@ -1,36 +1,69 @@
 import numpy as np
-import qnm
 import h5py
+import qnm
 import matplotlib.pyplot as plt
+from watpy.coredb.coredb import *
+import os
 
-R01_data = h5py.File("BAM_0125/data_R01.h5", 'r')
+class CoReSelection:
+    def __init__(self):
+        self.cdb = CoRe_db('./Data_Tests/') #clones files here
+        self.idb = self.cdb.idb #idb.index gives list of all simulations, .data[] of these gives metadata
 
-#print(list(R01_data['rh_22'].keys()))
-rh_22 = R01_data['rh_22'] #strain of mode 2,2 at different distances
-rpsi4_20 = R01_data['rpsi4_20']
-rpsi4_22 = R01_data['rpsi4_22']
+    def metadata(self, id='BAM:0125'):
+        for i in self.idb.index: #checking metadata
+            if i.data['database_key'] == id:
+                for j, k in i.data.items():
+                    print(f"{j} = {k}")
 
-#print(list(rpsi4_22.keys()))
+    def selection(self, eos=None, reference_bibkey=None, mass=None, mass_ratio=None, id_type=None):
+        """
+        Examples:
+        eos='SLy', reference_bibkey='Dietrich:2017aum', mass=[2.5,3], mass_ratio=[0.9,1.1], id_type='Irrotational'
+        """
+        self.sim_id = []
+        mass_list = []
+        mass_ratio_list = []
+        for i in self.idb.index:
+            m = i.data
+            if ((eos is None or m['id_eos']==eos) and 
+                (reference_bibkey is None or reference_bibkey in m['reference_bibkeys']) and 
+                (mass is None or mass[0]<=float(m['id_mass'])<=mass[1]) and 
+                (mass_ratio is None or mass_ratio[0]<=float(m['id_mass_ratio'])<=mass_ratio[1]) and 
+                (id_type is None or m['id_type']==id_type)):
+                self.sim_id.append(m['database_key'])
+                mass_list.append(float(m['id_mass']))
+                mass_ratio_list.append(float(m['id_mass_ratio']))
+        #print(self.sim_id)
+        #print(len(self.sim_id))
+        print(mass_list)
+        print(np.mean(mass_list))
+        print(mass_ratio_list)
+        print(np.mean(mass_ratio_list))
 
-rh_22_key0 = list(rh_22.keys())[0]
-rpsi4_20_key0 = list(rpsi4_20.keys())[0]
-rpsi4_22_key0 = list(rpsi4_22.keys())[0]
+    
+    def plot(self, id='BAM:0125', mode='rh_22'):
+        path = f"Data_Tests/{id.replace(':', '_')}/R01/data.h5"
+        if not os.path.exists(path):
+            return
+        self.cdb.sync(dbkeys=[id], lfs=True, prot='https') #plot function clones sim
+        R01_data = h5py.File(path, 'r')
+        series = R01_data[mode]
+        keys = list(series.keys())
+        series_r = series[keys[-1]][:] #selects largest extraction radius
+        signal = series_r.T[1] + 1j*series_r.T[2]
+        time = series_r.T[0]
+        plt.plot(time,np.real(signal))
+        plt.title(f"{id} Re[{mode}]")
+        plt.grid()
+        plt.show()
+    
+    def plot_selection(self, eos=None, reference_bibkey=None, mass=None, mass_ratio=None, id_type=None):
+        self.selection(eos, reference_bibkey, mass, mass_ratio, id_type)
+        for i in self.sim_id:
+            self.plot(i)
 
-Rh_l2_m2_r00700 = rh_22[rh_22_key0][:]
-Rpsi4_l2_m0_r00700 = rpsi4_20[rpsi4_20_key0][:]
-Rpsi4_l2_m2_r00700 = rpsi4_22[rpsi4_22_key0][:]
-
-#print(np.shape(Rpsi4_l2_m0_r00700))
-#print(Rpsi4_l2_m0_r00700[0])
-
-time = []
-for i in range(len(Rpsi4_l2_m2_r00700)):
-    time.append(Rpsi4_l2_m2_r00700[i][0])
-
-Re_psi4 = []
-for i in range(len(Rpsi4_l2_m2_r00700)):
-    Re_psi4.append(Rpsi4_l2_m2_r00700[i][4])
-
-plt.plot(Rh_l2_m2_r00700.T[0][1000:1200],Rh_l2_m2_r00700.T[1][1000:1200])
-plt.show()
-
+obj = CoReSelection()
+#obj.selection(eos='SLy')
+obj.plot('BAM:0130')
+#obj.plot_selection(eos='SLy')

@@ -26,7 +26,8 @@ class SXSAnalysis:
         self.total_signal = None
         self.total_fit = None
 
-        self.mass_total = self.sim.metadata['initial_ADM_energy']
+        self.mass_total = self.sim.metadata['initial_mass1'] + self.sim.metadata['initial_mass2']
+        print(f"Total mass is {self.mass_total}")
 
     def graph(self, waveform='h', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, 
               ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True):
@@ -188,14 +189,14 @@ class SXSAnalysis:
         print(f"Minimum mismatch at ring_start={test_param1[min_idx[1]]}, length={test_param2[min_idx[0]]}")
         print(mismatch_axis[min_idx[0], min_idx[1]])
 
-    def colour_plot(self):
+    def colour_plot(self, ring_start=32, fit_length=50):
         spin_axis = np.arange(0.65,0.75,0.001) #x-axis
         mass_axis = np.arange(0.925,0.975,0.001) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
             for j,mass in enumerate(mass_axis):
-                self.mismatch(a=spin, mass_bh=mass)
+                self.mismatch(ring_start=ring_start, fit_length=fit_length, a=spin, mass_bh=mass)
                 mismatch_axis[j,i] = self.mm.copy()
         
         fig, ax = plt.subplots()
@@ -213,7 +214,7 @@ class SXSAnalysis:
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
 if __name__ == "__main__":
-    test = SXSAnalysis("SXS:BBH:0389")
+    test = SXSAnalysis("SXS:BBH:0305")
     #test.graphs(modes=[[2,2]], plot_start=-30, a=0.691, mass_bh=0.946, fit=False) 
     #test.mismatch()
     #test.mismatch_test2()

@@ -10,9 +10,9 @@ strain = sim.strain
 
 h = strain.data[:,4]
 
-
+#print(sxs.sxs_directory("cache"))
 print(sim.metadata)
-print(strain.metadata)
+#print(strain.metadata)
 ##print(sim.psi4.time)
 #print(sim.psi4.data)
 
