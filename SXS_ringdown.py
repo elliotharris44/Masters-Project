@@ -13,8 +13,10 @@ class SXSAnalysis:
 
     def __init__(self, id="SXS:BBH:0305"):
         self.sim = sxs.load(id)
-
-        a_vec = self.sim.metadata["remnant_dimensionless_spin"]
+        try:
+            a_vec = self.sim.metadata["remnant_dimensionless_spin"]
+        except KeyError:
+            a_vec = 'NaN'
         if isinstance(a_vec,str) and a_vec=='NaN':
             self.a = 0.7 #guess
         else:
@@ -190,8 +192,8 @@ class SXSAnalysis:
         print(mismatch_axis[min_idx[0], min_idx[1]])
 
     def colour_plot(self, ring_start=32, fit_length=50):
-        spin_axis = np.arange(0.65,0.75,0.001) #x-axis
-        mass_axis = np.arange(0.925,0.975,0.001) #y-axis
+        spin_axis = np.arange(0.3,0.8,0.01) #x-axis
+        mass_axis = np.arange(3,4.5,0.01) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
@@ -214,18 +216,9 @@ class SXSAnalysis:
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
 if __name__ == "__main__":
-    test = SXSAnalysis("SXS:BBH:0305")
-    #test.graphs(modes=[[2,2]], plot_start=-30, a=0.691, mass_bh=0.946, fit=False) 
+    test = SXSAnalysis("SXS:BHNS:0002")
+    #test.graphs(modes=[[2,2]], plot_start=0, ring_start=18, fit_length=12, a=0.373, mass_bh=9.657, fit=False) 
     #test.mismatch()
     #test.mismatch_test2()
-    test.colour_plot()
+    test.colour_plot(ring_start=18, fit_length=12)
 
-
-
-
-#Checklist
-#check effect of shift above
-#reduce length to 50 as reduces error
-#make more efficient
-#add fit end line
-#overones causing problems

@@ -200,8 +200,8 @@ class CoReAnalysis:
         print(mismatch_axis[min_idx[0], min_idx[1]])
     
     def colour_plot(self, ring_start=64, fit_length=50):
-        spin_axis = np.arange(0.3,0.85,0.01) #x-axis
-        mass_axis = np.arange(2.4,3,0.01) #y-axis
+        spin_axis = np.arange(0.65,0.75,0.001) #x-axis
+        mass_axis = np.arange(2.5,2.55,0.001) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
@@ -224,12 +224,10 @@ class CoReAnalysis:
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
 if __name__ == "__main__":
-    test = CoReAnalysis("BAM_0099")
-    test.graphs(waveform='psi4', modes=[[2,2]], n_overtones=0, plot_start=65, ring_start=66, fit_length=30,
-                a=0.764, mass_bh=2.630, fit=False, neg_freq=True)
+    test = CoReAnalysis("BAM_0103")
+    test.graphs(waveform='psi4', plot_start=600, ring_start=605, fit_length=50,
+                a=0.658, mass_bh=2.556, fit=True, neg_freq=True)
     #test.mismatch(waveform='22')
-    #test.colour_plot(ring_start=50, fit_length=50)
+    #test.colour_plot(ring_start=100, fit_length=50)
     #test.mismatch_test2()
 
-#Checklist
-#check mismatch still works normal
