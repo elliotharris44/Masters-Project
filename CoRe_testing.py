@@ -50,7 +50,7 @@ class CoReSelection:
             # print(np.mean(mass_ratio_list))
     
     def plot(self, id='BAM:0125', mode='rpsi4_22'):
-        path = f"Data_Tests/{id.replace(':', '_')}/R01/data.h5"
+        path = f"Data_Tests/{id.replace(':', '_')}/R02/data.h5"
         if not os.path.exists(path):
             print(f"Skipping {id} - not downloaded")
             return
@@ -60,7 +60,8 @@ class CoReSelection:
         series_r = series[keys[-1]][:] #selects largest extraction radius
         signal = series_r.T[1] + 1j*series_r.T[2]
         time = series_r.T[0]
-        plt.plot(time,np.real(signal))
+        print(len(time))
+        plt.plot(time[600:1000],np.real(signal)[600:1000])
         plt.title(f"{id} Re[{mode}]")
         plt.grid()
         plt.show()
@@ -70,7 +71,25 @@ class CoReSelection:
         for i in self.sim_id:
             self.plot(i)
 
-obj = CoReSelection()
-obj.selection(printing=True)
-#obj.plot('BAM:0130')
+
+def plot_log():
+    data = np.loadtxt("Runs/fit_output1.txt")
+    pos = np.loadtxt("Runs/fit_output2.txt")
+    t = data[:,0]
+    signal = data[:,1] + 1j*data[:,2]
+    fit = data[:,3] + 1j*data[:,4]
+    fit_pos = pos[:,3] + 1j*pos[:,4]
+    plt.semilogy(t, np.abs(signal), label='Data')
+    plt.semilogy(t, np.abs(fit), label='Fit (Positive + Negative Frequencies)')
+    plt.semilogy(t, np.abs(fit_pos), label='Fit (Positive Frequency)')
+    plt.xlabel("Time (M)", fontsize='large')
+    plt.ylabel(r"$\log|\psi_{4}|$", fontsize='large')
+    plt.grid()
+    plt.legend(loc='upper right')
+    plt.show()
+
+#obj = CoReSelection()
+#obj.selection(printing=True)
+#obj.plot('BAM:0125')
 #obj.plot_selection(eos='SLy')
+plot_log()
