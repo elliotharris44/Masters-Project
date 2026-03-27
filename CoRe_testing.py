@@ -23,7 +23,7 @@ class CoReSelection:
         """
         self.sim_id = []
         # bibkeys = []
-        # mass_list = []
+        mass_list = []
         # mass_ratio_list = []
         # eos_list = []
         for i in self.idb.index:
@@ -34,7 +34,7 @@ class CoReSelection:
                 (mass_ratio is None or mass_ratio[0]<=float(m['id_mass_ratio'])<=mass_ratio[1]) and 
                 (id_type is None or m['id_type']==id_type)):
                 self.sim_id.append(m['database_key'])
-                # mass_list.append(float(m['id_mass']))
+                mass_list.append(float(m['id_mass']))
                 # mass_ratio_list.append(float(m['id_mass_ratio']))
                 # if m['reference_bibkeys'] not in bibkeys:
                 #     bibkeys.append(m['reference_bibkeys'])
@@ -44,24 +44,32 @@ class CoReSelection:
             print(self.sim_id)
             # print(bibkeys)
             # print(len(self.sim_id))
-            # print(mass_list)
+            print(mass_list)
             # print(np.mean(mass_list))
             # print(mass_ratio_list)
             # print(np.mean(mass_ratio_list))
     
     def plot(self, id='BAM:0125', mode='rpsi4_22'):
         path = f"Data_Tests/{id.replace(':', '_')}/R02/data.h5"
-        if not os.path.exists(path):
-            print(f"Skipping {id} - not downloaded")
+        try:
+            R01_data = h5py.File(path, 'r')
+        except OSError:
+            print(f"Skipping {id} - file could not be opened (possibly corrupted)")
             return
-        R01_data = h5py.File(path, 'r')
+        try:
+            if mode not in R01_data:
+                print(f"Skipping {id} - mode '{mode}' not found")
+                return
+        except RuntimeError:
+            print(f"Skipping {id} - file corrupted (bad HDF5 structure)")
+            return
         series = R01_data[mode]
         keys = list(series.keys())
         series_r = series[keys[-1]][:] #selects largest extraction radius
         signal = series_r.T[1] + 1j*series_r.T[2]
         time = series_r.T[0]
-        print(len(time))
-        plt.plot(time[600:1000],np.real(signal)[600:1000])
+        #print(len(time))
+        plt.plot(time,np.real(signal))
         plt.title(f"{id} Re[{mode}]")
         plt.grid()
         plt.show()
@@ -88,8 +96,8 @@ def plot_log():
     plt.legend(loc='upper right')
     plt.show()
 
-#obj = CoReSelection()
-#obj.selection(printing=True)
-#obj.plot('BAM:0125')
-#obj.plot_selection(eos='SLy')
-plot_log()
+obj = CoReSelection()
+#obj.selection(reference_bibkey='Camilletti:2022jms', printing=True)
+obj.plot('THC:0074')
+#obj.plot_selection(eos='BLh')
+#plot_log()

@@ -13,6 +13,8 @@ class SXSAnalysis:
 
     def __init__(self, id="SXS:BBH:0305"):
         self.sim = sxs.load(id)
+        lev2 = self.sim.metadata['lev_numbers'][-2]
+        self.sim2 = sxs.load(f"{id}/Lev{lev2}") #second highest resolution for noise
         try:
             a_vec = self.sim.metadata["remnant_dimensionless_spin"]
         except KeyError:
@@ -23,7 +25,11 @@ class SXSAnalysis:
             self.a = np.linalg.norm(np.array(a_vec))
 
         self.strain = self.sim.strain
+        self.psi4 = self.sim.psi4
         self.time = self.strain.time
+        self.strain2 = self.sim2.strain
+        self.psi42 = self.sim2.psi4
+        self.time2 = self.strain2.time
 
         self.total_signal = None
         self.total_fit = None
@@ -32,7 +38,8 @@ class SXSAnalysis:
         print(f"Total mass is {self.mass_total}")
 
     def graph(self, waveform='h', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, 
-              ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True, neg_freq=False, agn_freq=None):
+            ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True,
+            neg_freq=False, agn_freq=None, noise_plot=False):
         """
         Arguments
         waveform(string): h, psi4
@@ -47,9 +54,14 @@ class SXSAnalysis:
         scale = self.mass_total/mass_bh
         if waveform=='h':
             modes = self.strain
-            
         else:
-            modes = self.sim.psi4
+            modes = self.psi4
+
+        if noise_plot:
+            if waveform=='h':
+                modes2 = self.strain2
+            else:
+                modes = self.psi42
 
         ind = np.flatnonzero((modes.LM == mode).all(axis=1))[0]
         signal = modes.data[:, ind]
@@ -76,20 +88,20 @@ class SXSAnalysis:
             sign =[+1]
         for s in sign:
             for n in range(n_overtones+1):
-                grav_220 = qnm.modes_cache(s=-2,l=mode[0],m=mode[1],n=n)
+                grav_lmn = qnm.modes_cache(s=-2,l=mode[0],m=mode[1],n=n)
                 if a is None:
-                    omega, _, _ = grav_220(self.a)
+                    omega, _, _ = grav_lmn(self.a)
                 else:
-                    omega, _, _ = grav_220(a)
+                    omega, _, _ = grav_lmn(a)
                 omega = omega*scale
                 omegas.append(s*np.real(omega))
                 taus.append(-1/np.imag(omega))
                 p0 += [0.1, 0] #parameter guesses
                 #print(f"Re[omega] is {omega.real}, -Im[omega] is {-omega.imag}")
-            if agn_freq is not None:
-                omegas.append(s*agn_freq[0]) #in units of total binary mass
-                taus.append(1/(agn_freq[1]))
-                p0 += [0.1, 0]
+        if agn_freq is not None:
+            omegas.append(agn_freq[0]) #in units of total binary mass
+            taus.append(1/(agn_freq[1]))
+            p0 += [0.1, 0]
         popt, _ = scipy.optimize.curve_fit(ringdown_comb(omegas, taus), time_comb, signal_comb, p0)
         
         plot_min = np.abs(time_shift-plot_start).argmin()
@@ -110,14 +122,24 @@ class SXSAnalysis:
         
         if plot:
             _, axs = plt.subplots(2, 1)
+            if noise_plot:
+                signal2 = modes2.data[:, ind]
+                time2 = self.time2
+                peaks2, _ = scipy.signal.find_peaks(signal2.real)
+                main_peak_index2 = np.argmax(signal2.real[peaks2])
+                peak_t2 = time2[peaks2[main_peak_index2]]
+                time2_shifted = time2 - peak_t2 + peak_t  #shift R02 onto R01 peak time
+                signal2 = np.interp(time, time2_shifted, signal2)
+                signal2_plot = signal2[plot_min:plot_max]
+                noise = signal2_plot - signal_plot #divide by some factor in future
+                axs[0].plot(time_plot, signal2_plot.real, label="R02")
+                axs[1].plot(time_plot, signal2_plot.imag, label="R02")
+
             if fit:
                 axs[0].plot(time_plot, y_fit_real, label="Fit")
                 axs[1].plot(time_plot, y_fit_imag, label="Fit")
                 axs[0].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
                 axs[1].axvline(ring_start+fit_start, color='grey', linestyle=':', label='Start of Fitting')
-            #axs[0].axvline(ring_start, color='black', linestyle=':', label='Start of Ringdown')
-            #axs[1].axvline(ring_start, color='black', linestyle=':', label='Start of Ringdown')
-            
             
             axs[0].plot(time_plot, signal_plot.real, label=f"Data: Mode {mode}")
             axs[1].plot(time_plot, signal_plot.imag, label=f"Data: Mode {mode}")
@@ -126,12 +148,15 @@ class SXSAnalysis:
             axs[0].grid()
             axs[1].grid()
             plt.show()
-            #plt.plot(time_comb, signal_comb)
-            #plt.show()
-            plt.semilogy(time_plot[mi:ma], np.abs(signal_plot[mi:ma]), label='Data')
-            plt.semilogy(time_plot[mi:ma], np.abs(self.h_fit[mi:ma]), label='Fit')
-            plt.grid()
-            plt.legend()
+            _, axs = plt.subplots(2, 1)
+            axs[0].semilogy(time_plot[mi:ma], np.abs(signal_plot[mi:ma]), label='Data')
+            axs[0].semilogy(time_plot[mi:ma], np.abs(self.h_fit[mi:ma]), label='Fit')
+            axs[1].semilogy(time_plot[mi:ma], np.abs(signal_plot[mi:ma]-self.h_fit[mi:ma]), label='Residual')
+            if noise_plot:
+                axs[1].semilogy(time_plot[mi:ma], np.abs(noise[mi:ma]), label='Noise')
+            for ax in axs:
+                ax.grid()
+                ax.legend()
             plt.show()
 
         if self.total_signal is None:
@@ -142,12 +167,13 @@ class SXSAnalysis:
             self.total_fit += self.h_fit
 
     def graphs(self, waveform='h', modes=[[2,2]], n_overtones=0, plot_start=0, plot_end=0, 
-              ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True, neg_freq=False, agn_freq=None):
+            ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True,
+            neg_freq=False, agn_freq=None, noise_plot=False):
         self.total_signal = None
         self.total_fit = None
 
         for m in modes:
-            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, fit, neg_freq, agn_freq)
+            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, fit, neg_freq, agn_freq, noise_plot)
 
         if plot is True:
             mi = self.fit_min
@@ -159,7 +185,7 @@ class SXSAnalysis:
             ax.legend()
             plt.show()
     
-    def mismatch(self, modes=[[2,2]], n_overtones=1, ring_start=32, fit_start=0,
+    def mismatch(self, modes=[[2,2]], n_overtones=0, ring_start=32, fit_start=0,
                   fit_length=50, a=None, mass_bh=None, plot=False, agn_freq=None):
         self.graphs(modes=modes, n_overtones=n_overtones, ring_start=ring_start, fit_start=fit_start,
                     fit_length=fit_length, a=a, mass_bh=mass_bh, plot=plot, agn_freq=agn_freq)
@@ -171,8 +197,8 @@ class SXSAnalysis:
     def mismatch_test1(self):
         test_param = []
         mm = []
-        for i in np.arange(3,60,1):
-            self.mismatch(fit_length=i)
+        for i in np.arange(10,70,1):
+            self.mismatch(modes=[[4,4]], ring_start=i, fit_length=80-i, a=0.692, mass_bh=0.952)
             test_param.append(i)
             mm.append(self.mm.copy())
         print(f"The mismatch {np.min(mm)} is a minimum when parameter is {test_param[np.argmin(mm)]}")
@@ -200,14 +226,14 @@ class SXSAnalysis:
         print(f"Minimum mismatch at ring_start={test_param1[min_idx[1]]}, length={test_param2[min_idx[0]]}")
         print(mismatch_axis[min_idx[0], min_idx[1]])
 
-    def colour_plot(self, ring_start=32, fit_length=50):
-        spin_axis = np.arange(0.68,0.75,0.001) #x-axis
+    def colour_plot(self, waveform='h', modes=[[2,2]], n_overtones=0, ring_start=32, fit_length=50):
+        spin_axis = np.arange(0.67,0.75,0.001) #x-axis
         mass_axis = np.arange(0.945,0.980,0.001) #y-axis
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
             for j,mass in enumerate(mass_axis):
-                self.mismatch(ring_start=ring_start, fit_length=fit_length, a=spin, mass_bh=mass)
+                self.mismatch(modes=[[2,2]], ring_start=ring_start, fit_length=fit_length, a=spin, mass_bh=mass)
                 mismatch_axis[j,i] = self.mm.copy()
         
         fig, ax = plt.subplots()
@@ -225,7 +251,7 @@ class SXSAnalysis:
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
     def freq_colour_plot(self, ring_start, fit_length, a, mass_bh):
-        re_axis = np.arange(1,1.5,0.01) #x-axis
+        re_axis = np.arange(1.05,1.2,0.01) #x-axis
         im_axis = np.arange(0,0.5,0.01) #y-axis
         mismatch_axis = np.zeros((len(im_axis), len(re_axis))) #'heat'
 
@@ -252,9 +278,9 @@ class SXSAnalysis:
 
 if __name__ == "__main__":
     test = SXSAnalysis("SXS:BBH:0305")
-    #test.graphs(waveform='h', modes=[[4,4]], n_overtones=1, plot_start=18, ring_start=20, fit_length=80, a=0.691, mass_bh=0.953, fit=True) 
+    test.graphs(waveform='h', modes=[[2,2]], n_overtones=0, plot_start=0, ring_start=32, fit_length=50, a=0.692, mass_bh=0.952, noise_plot=True) 
     #test.mismatch()
-    #test.mismatch_test2()
-    #test.colour_plot(ring_start=20, fit_length=80)
-    test.freq_colour_plot(ring_start=20, fit_length=80, a=0.688, mass_bh=0.949)
+    #test.mismatch_test1()
+    #test.colour_plot(modes=[[4,4]], n_overtones=1, ring_start=20, fit_length=60)
+    #test.freq_colour_plot(ring_start=20, fit_length=60, a=0.692, mass_bh=0.952)
 
