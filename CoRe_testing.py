@@ -22,10 +22,10 @@ class CoReSelection:
         eos='SLy', reference_bibkey='Dietrich:2017aum', mass=[2.5,3], mass_ratio=[0.9,1.1], id_type='Irrotational'
         """
         self.sim_id = []
-        # bibkeys = []
+        bibkeys = []
         mass_list = []
-        # mass_ratio_list = []
-        # eos_list = []
+        mass_ratio_list = []
+        eos_list = []
         for i in self.idb.index:
             m = i.data
             if ((eos is None or m['id_eos']==eos) and 
@@ -35,9 +35,19 @@ class CoReSelection:
                 (id_type is None or m['id_type']==id_type)):
                 self.sim_id.append(m['database_key'])
                 mass_list.append(float(m['id_mass']))
-                # mass_ratio_list.append(float(m['id_mass_ratio']))
-                # if m['reference_bibkeys'] not in bibkeys:
-                #     bibkeys.append(m['reference_bibkeys'])
+                mass_ratio_list.append(float(m['id_mass_ratio']))
+                eos_list.append(m['id_eos'])
+
+                # path = f"Data_Tests/{m['database_key'].replace(':', '_')}/R01/data.h5"
+                # try:
+                #     R01_data = h5py.File(path, 'r')
+                # except OSError:
+                #     print(f"Skipping {id} - file could not be opened (possibly corrupted)")
+                #     break
+
+                if m['reference_bibkeys'] not in bibkeys:
+                    # if 'rpsi4_44' in R01_data:
+                    bibkeys.append(m['reference_bibkeys'])
         if sync:
             self.cdb.sync(dbkeys=self.sim_id, lfs=True, prot='https')
         if printing:
@@ -46,11 +56,12 @@ class CoReSelection:
             # print(len(self.sim_id))
             print(mass_list)
             # print(np.mean(mass_list))
-            # print(mass_ratio_list)
+            print(mass_ratio_list)
             # print(np.mean(mass_ratio_list))
+            print(eos_list)
     
-    def plot(self, id='BAM:0125', mode='rpsi4_22'):
-        path = f"Data_Tests/{id.replace(':', '_')}/R02/data.h5"
+    def plot(self, id='BAM:0125', mode='rpsi4_44'):
+        path = f"Data_Tests/{id.replace(':', '_')}/R01/data.h5"
         try:
             R01_data = h5py.File(path, 'r')
         except OSError:
@@ -97,7 +108,7 @@ def plot_log():
     plt.show()
 
 obj = CoReSelection()
-#obj.selection(reference_bibkey='Camilletti:2022jms', printing=True)
-obj.plot('THC:0074')
+#obj.selection(reference_bibkey='Schianchi:2024vvi', printing=True)
+obj.plot('BAM:0166')
 #obj.plot_selection(eos='BLh')
 #plot_log()

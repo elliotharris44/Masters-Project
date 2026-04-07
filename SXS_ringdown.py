@@ -197,8 +197,8 @@ class SXSAnalysis:
     def mismatch_test1(self):
         test_param = []
         mm = []
-        for i in np.arange(10,70,1):
-            self.mismatch(modes=[[4,4]], ring_start=i, fit_length=80-i, a=0.692, mass_bh=0.952)
+        for i in np.arange(5,70,1):
+            self.mismatch(modes=[[4,4]], n_overtones=1, ring_start=i, fit_length=80-i, a=0.686, mass_bh=0.952)
             test_param.append(i)
             mm.append(self.mm.copy())
         print(f"The mismatch {np.min(mm)} is a minimum when parameter is {test_param[np.argmin(mm)]}")
@@ -251,8 +251,8 @@ class SXSAnalysis:
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
     def freq_colour_plot(self, ring_start, fit_length, a, mass_bh):
-        re_axis = np.arange(1.05,1.2,0.01) #x-axis
-        im_axis = np.arange(0,0.5,0.01) #y-axis
+        re_axis = np.arange(1.05,1.2,0.005) #x-axis
+        im_axis = np.arange(0,0.5,0.005) #y-axis
         mismatch_axis = np.zeros((len(im_axis), len(re_axis))) #'heat'
 
         for i,re in enumerate(tqdm.tqdm(re_axis)):
@@ -277,10 +277,10 @@ class SXSAnalysis:
         print(f"Minimum mismatch {best_mm} at -Im[omega]={best_im}, Re[omega]={best_re}")
 
 if __name__ == "__main__":
-    test = SXSAnalysis("SXS:BBH:0305")
-    test.graphs(waveform='h', modes=[[2,2]], n_overtones=0, plot_start=0, ring_start=32, fit_length=50, a=0.692, mass_bh=0.952, noise_plot=True) 
+    test = SXSAnalysis("SXS:BBH:0389")
+    #test.graphs(waveform='h', modes=[[4,4]], n_overtones=0, plot_start=0, ring_start=0, fit_length=150, a=0.686, mass_bh=0.952, noise_plot=True) 
     #test.mismatch()
     #test.mismatch_test1()
     #test.colour_plot(modes=[[4,4]], n_overtones=1, ring_start=20, fit_length=60)
-    #test.freq_colour_plot(ring_start=20, fit_length=60, a=0.692, mass_bh=0.952)
+    test.freq_colour_plot(ring_start=25, fit_length=55, a=0.686, mass_bh=0.952)
 
