@@ -12,7 +12,10 @@ class CoReAnalysis:
     """
     def __init__(self, id = "BAM_0125"):
         self.R01_data = h5py.File(f"Data_Tests/{id}/R01/data.h5", 'r')
-        self.R02_data = h5py.File(f"Data_Tests/{id}/R02/data.h5", 'r')
+        try:
+            self.R02_data = h5py.File(f"Data_Tests/{id}/R02/data.h5", 'r')
+        except FileNotFoundError:
+            self.R02_data = None #claude code
         with open(f"Data_Tests/{id}/R01/metadata.txt") as f:
             for line in f:
                 if line.startswith("id_mass "):
@@ -24,7 +27,7 @@ class CoReAnalysis:
 
     def graph(self, waveform='psi4', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, ring_start=64,
                fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, skew=False, fit=True,
-               neg_freq=False, agn_freq=None, noise_plot=False):
+               neg_freq=False, agn_freq=None, noise_plot=False, rad=-1):
         """
         Arguments: 
         waveform(string): h for strain, 22 ect for psi4 l=2, m=2 mode
@@ -38,28 +41,32 @@ class CoReAnalysis:
         if waveform=='h':
             series = self.R01_data[f'rh_{str(mode[0])}{str(mode[1])}']
             keys = list(series.keys())
-            series_1000 = series[keys[-1]][:]
+            series_1000 = series[keys[rad]][:]
 
         else:
             series = self.R01_data[f'rpsi4_{str(mode[0])}{str(mode[1])}']
             keys = list(series.keys())
-            series_1000 = series[keys[-1]][:]
+            series_1000 = series[keys[rad]][:]
         
         if noise_plot:
-            if waveform=='h':
-                series2 = self.R02_data[f'rh_{str(mode[0])}{str(mode[1])}']
-                keys2 = list(series2.keys())
-                series_10002 = series2[keys2[-1]][:]
+            if self.R02_data is None:
+                print("Warning: R02 data not available, disabling noise_plot.")
+                noise_plot = False
             else:
-                series2 = self.R02_data[f'rpsi4_{str(mode[0])}{str(mode[1])}']
-                keys2 = list(series2.keys())
-                series_10002 = series2[keys2[-1]][:]
+                if waveform=='h':
+                    series2 = self.R02_data[f'rh_{str(mode[0])}{str(mode[1])}']
+                    keys2 = list(series2.keys())
+                    series_10002 = series2[keys2[rad]][:]
+                else:
+                    series2 = self.R02_data[f'rpsi4_{str(mode[0])}{str(mode[1])}']
+                    keys2 = list(series2.keys())
+                    series_10002 = series2[keys2[rad]][:]
 
         signal = series_1000.T[1] + 1j*series_1000.T[2]
         time = series_1000.T[0]
 
-        peaks, _ = scipy.signal.find_peaks(signal.real) 
-        main_peak_index = np.argmax(signal.real[peaks])
+        peaks, _ = scipy.signal.find_peaks(np.abs(signal)) 
+        main_peak_index = np.argmax(np.abs(signal[peaks]))
         peak_t = time[peaks[main_peak_index]] 
 
         time_shift = time-peak_t #t=0 is at peak, full time
@@ -70,7 +77,7 @@ class CoReAnalysis:
 
         signal_fit = signal[t_min:t_max]
         signal_comb = np.concatenate([signal_fit.real, signal_fit.imag])
-        time_comb = np.concatenate([time_fit, time_fit+time_fit[-1]-time_fit[0]]) #potential error with two time coordinates the same
+        time_comb = np.concatenate([time_fit, time_fit]) #potential error with two time coordinates the same
 
         p0 = []
         omegas = []
@@ -171,12 +178,12 @@ class CoReAnalysis:
     
     def graphs(self, waveform='psi4', modes=[[2,2]], n_overtones=0, plot_start=0, plot_end=0, ring_start=64,
             fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, skew=False, fit=True, neg_freq=False,
-            agn_freq=None, noise_plot=False):
+            agn_freq=None, noise_plot=False, rad=-1):
         self.total_signal = None
         self.total_fit = None
 
         for m in modes:
-            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, skew, fit, neg_freq, agn_freq, noise_plot)
+            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, skew, fit, neg_freq, agn_freq, noise_plot, rad)
 
         if plot is True:
             mi = self.fit_min
@@ -195,23 +202,25 @@ class CoReAnalysis:
         np.savetxt("Runs/fit_output2.txt", np.column_stack([self.time_plot[mi:ma].real, self.h_data[mi:ma].real, self.h_data[mi:ma].imag, self.h_fit[mi:ma].real, self.h_fit[mi:ma].imag]))
 
     def mismatch(self, waveform='psi4', modes=[[2,2]], n_overtones=0, ring_start=64, fit_start=0,
-                  fit_length=50, a=None, mass_bh=None, plot=False, skew=False, neg_freq=False, agn_freq=None):
+                  fit_length=50, a=None, mass_bh=None, plot=False, skew=False, neg_freq=False, agn_freq=None, rad=-1, printing=False):
         self.graphs(waveform=waveform, modes=modes, n_overtones=n_overtones, ring_start=ring_start, fit_start=fit_start,
-                    fit_length=fit_length, a=a, mass_bh=mass_bh, plot=plot, skew=skew, neg_freq=neg_freq, agn_freq=agn_freq)
+                    fit_length=fit_length, a=a, mass_bh=mass_bh, plot=plot, skew=skew, neg_freq=neg_freq, agn_freq=agn_freq, rad=rad)
         mi = self.fit_min
         ma = self.fit_max
         self.mm = mismatch_function(self.time_plot[mi:ma], self.total_signal[mi:ma], self.total_fit[mi:ma])
-        #print(self.mm)
+        if printing:
+            print(self.mm)
     
-    def mismatch_test1(self, modes=[[2,2]], n_overtones=1, a=None, mass_bh=None, neg_freq=False):
+    def mismatch_test1(self, modes=[[2,2]], n_overtones=1, a=None, mass_bh=None, neg_freq=False, end=80, rad=-1):
         test_param = []
         mm = []
-        for i in np.arange(20,70,1):
-            self.mismatch(modes=modes, n_overtones=n_overtones, ring_start=i, fit_length=78-i, a=a, mass_bh=mass_bh, neg_freq=neg_freq)
+        for i in np.arange(0,40,1):
+            self.mismatch(modes=modes, n_overtones=n_overtones, ring_start=i, fit_length=end-i, a=a, mass_bh=mass_bh, neg_freq=neg_freq, rad=rad)
             test_param.append(i)
             mm.append(self.mm.copy())
         print(f"The mismatch {np.min(mm)} is a minimum when parameter is {test_param[np.argmin(mm)]}")
-        plt.plot(test_param, mm)
+        plt.semilogy(test_param, mm)
+        plt.grid()
         plt.show()
 
     def mismatch_test2(self):
@@ -235,64 +244,139 @@ class CoReAnalysis:
         print(f"Minimum mismatch at ring_start={test_param1[min_idx[1]]}, length={test_param2[min_idx[0]]}")
         print(mismatch_axis[min_idx[0], min_idx[1]])
     
-    def colour_plot(self, waveform='psi4', modes=[[2,2]], n_overtones=0, ring_start=64, fit_length=50, neg_freq=False):
-        spin_axis = np.arange(0.82,0.85,0.001) #x-axis
-        mass_axis = np.arange(3.2,3.6,0.001) #y-axis
+    def colour_plot(self, waveform='psi4', modes=[[2,2]], n_overtones=0, ring_start=64, fit_length=50, neg_freq=False, mass_plot=True, rad=-1):
+        spin_axis = np.arange(0.5,0.8,0.01) #x-axis
+        mass_axis = np.arange(2.2,3,0.01) #y-axis
+
+        # spin_axis = np.arange(0.66,0.7,0.001) #x-axis
+        # mass_axis = np.arange(2.5,2.54,0.001) #y-axis
+
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
         for i,spin in enumerate(tqdm.tqdm(spin_axis)):
             for j,mass in enumerate(mass_axis):
-                self.mismatch(waveform=waveform, modes=modes, n_overtones=n_overtones, ring_start=ring_start, fit_length=fit_length, a=spin, mass_bh=mass, neg_freq=neg_freq)
+                self.mismatch(waveform=waveform, modes=modes, n_overtones=n_overtones, ring_start=ring_start, fit_length=fit_length, a=spin, mass_bh=mass, neg_freq=neg_freq, rad=rad)
                 mismatch_axis[j,i] = self.mm.copy()
         
-        fig, ax = plt.subplots()
-        im = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[spin_axis.min(), spin_axis.max(),
-            mass_axis.min(), mass_axis.max()])
-        cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label("Mismatch", fontsize='medium')
-        ax.set_xlabel(r"Dimensionless Spin $a/M$")
-        ax.set_ylabel(r"Black Hole Mass $M_f$ $(M_\odot)$")
-        plt.show()
+        if mass_plot:
+            fig, ax = plt.subplots()
+            im = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[spin_axis.min(), spin_axis.max(),
+                mass_axis.min(), mass_axis.max()])
+            cbar = fig.colorbar(im, ax=ax)
+            cbar.set_label("Mismatch", fontsize='medium')
+            ax.set_xlabel(r"Dimensionless Spin $a/M$")
+            ax.set_ylabel(r"Black Hole Mass $M_f$ $(M_\odot)$")
+            plt.show()
 
         min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
-        best_mass = mass_axis[min_idx[0]]
-        best_spin = spin_axis[min_idx[1]]
-        best_mm = mismatch_axis[min_idx[0],min_idx[1]]
-        print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
+        self.best_mass = mass_axis[min_idx[0]]
+        self.best_spin = spin_axis[min_idx[1]]
+        self.best_mm = mismatch_axis[min_idx[0],min_idx[1]]
+        print(f"Minimum mismatch {self.best_mm} at mass={self.best_mass}, spin={self.best_spin}")
     
-    def freq_colour_plot(self, ring_start, fit_length, a, mass_bh):
-        re_axis = np.arange(1,1.5,0.01) #x-axis
+    def freq_colour_plot(self, ring_start, fit_length, a, mass_bh, freq_plot=True, rad=-1):
+        re_axis = np.arange(0.4,1.5,0.02) #x-axis
         im_axis = np.arange(0,0.5,0.01) #y-axis
         mismatch_axis = np.zeros((len(im_axis), len(re_axis))) #'heat'
 
         for i,re in enumerate(tqdm.tqdm(re_axis)):
             for j,im in enumerate(im_axis):
-                self.mismatch(modes=[[4,4]], n_overtones=1, ring_start=ring_start, fit_length=fit_length, a=a, mass_bh=mass_bh, neg_freq=False, agn_freq=[re,im])
+                self.mismatch(modes=[[4,4]], n_overtones=1, ring_start=ring_start, fit_length=fit_length, a=a, mass_bh=mass_bh, neg_freq=False, agn_freq=[re,im], rad=rad)
                 mismatch_axis[j,i] = self.mm.copy()
         
-        fig, ax = plt.subplots()
-        ima = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[re_axis.min(), re_axis.max(),
-            im_axis.min(), im_axis.max()])
-        fig.colorbar(ima, ax=ax)
-        ax.set_xlabel(r"Re[$\omega$]")
-        ax.set_ylabel(r"-Im[$\omega$]")
-        plt.plot(1.2063, 0.1474, 'x', color='red') #2w(2,2)
-        plt.plot(1.2729, 0.3809, 'o', color='pink') #w(4,4,2) THC:0033
-        plt.show()
+        if freq_plot:
+            fig, ax = plt.subplots()
+            ima = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[re_axis.min(), re_axis.max(),
+                im_axis.min(), im_axis.max()])
+            fig.colorbar(ima, ax=ax)
+            ax.set_xlabel(r"Re[$\omega$]")
+            ax.set_ylabel(r"-Im[$\omega$]")
+            scale = self.mass_total/mass_bh
+            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+            omega_22 = omega_22*scale
+            omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(a)
+            omega_44 = omega_44*scale
+            plt.plot(2*omega_22.real, -2*omega_22.imag, 'x', color='red', label='(2,2,0)x(2,2,0)') #2w(2,2)
+            plt.plot(omega_44.real, -omega_44.imag, 'o', label='(4,4,2)') #w(4,4,2) 
+            plt.legend()
+            plt.show()
 
         min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
-        best_im = im_axis[min_idx[0]]
-        best_re = re_axis[min_idx[1]]
-        best_mm = mismatch_axis[min_idx[0],min_idx[1]]
-        print(f"Minimum mismatch {best_mm} at -Im[omega]={best_im}, Re[omega]={best_re}")
+        self.best_im = im_axis[min_idx[0]]
+        self.best_re = re_axis[min_idx[1]]
+        self.best_mm = mismatch_axis[min_idx[0],min_idx[1]]
+        print(f"Minimum mismatch {self.best_mm} at Re[omega]={self.best_re}, -Im[omega]={self.best_im}")
+        print(f"Non-linear mode (2,2,0)x(2,2,0): Re[omega]={2*omega_22.real}, -Im[omega]={-2*omega_22.imag}")
+        print(f"Second overtone (4,4,2): Re[omega]={omega_44.real}, -Im[omega]={-omega_44.imag}")
+    
+    def mass_time_drift(self, fit_start_range, fit_end, rad=-1):
+        times = []
+        best_masses = []
+        best_spins = []
+        best_mms = []
+
+        for t in tqdm.tqdm(np.arange(fit_start_range[0], fit_start_range[1], 5)):
+            self.colour_plot(n_overtones=1, ring_start=t, fit_length=fit_end-t, mass_plot=False, rad=rad)
+            times.append(t)
+            best_masses.append(self.best_mass)
+            best_spins.append(self.best_spin)
+            best_mms.append(self.best_mm)
+        
+        fig, ax = plt.subplots()
+        sc = ax.scatter(best_spins, best_masses, c=times)
+        fig.colorbar(sc, ax=ax, label='Initial Times')
+        ax.grid()
+        ax.set_xlabel(r"Spins")
+        ax.set_ylabel(r"Masses")
+        ax.plot(0.756, 3.234, 'x', color='red') #must change each time
+        
+        fig2, ax2 = plt.subplots()
+        ax2.semilogy(times, best_mms)
+        ax2.grid()
+        plt.show()
+
+    def freq_time_drift(self, fit_start_range, fit_end, a, mass_bh, rad=-1):
+        times = []
+        best_ims = []
+        best_res = []
+        best_mms = []
+
+        for t in tqdm.tqdm(np.arange(fit_start_range[0], fit_start_range[1], 1)):
+            self.freq_colour_plot(t, fit_end-t, a, mass_bh, freq_plot=False, rad=rad)
+            times.append(t)
+            best_ims.append(self.best_im)
+            best_res.append(self.best_re)
+            best_mms.append(self.best_mm)
+        
+        fig, ax = plt.subplots()
+        sc = ax.scatter(best_res, best_ims, c=times)
+        fig.colorbar(sc, ax=ax, label='Initial Times')
+        ax.grid()
+        ax.set_xlabel(r"Re[$\omega$]")
+        ax.set_ylabel(r"-Im[$\omega$]")
+        scale = self.mass_total/mass_bh
+        omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+        omega_22 = omega_22*scale
+        omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(a)
+        omega_44 = omega_44*scale
+        ax.plot(2*omega_22.real, -2*omega_22.imag, 'x', color='red', label='(2,2,0)x(2,2,0)') #2w(2,2)
+        ax.plot(omega_44.real, -omega_44.imag, '*', color='pink', label='(4,4,2)') #w(4,4,2)
+        ax.legend()
+        
+        fig2, ax2 = plt.subplots()
+        ax2.semilogy(times, best_mms)
+        ax2.grid()
+        plt.show()
 
 if __name__ == "__main__":
-    test = CoReAnalysis("THC_0074")
-    test.graphs(waveform='psi4', modes=[[2,2]], n_overtones=0, plot_start=0, ring_start=0, fit_length=25,
-                a=0.774, mass_bh=3.25, fit=True, neg_freq=False, noise_plot=True)
-    #test.mismatch(waveform='22')
-    #test.colour_plot(modes=[[2,2]], n_overtones=0, ring_start=45, fit_length=33, neg_freq=False)
-    #test.mismatch_test1(modes=[[2,2]], n_overtones=1, a=0.83, mass_bh=3.4, neg_freq=False)
+    test = CoReAnalysis("BAM_0214")
+    # test.graphs(waveform='psi4', modes=[[4,4]], n_overtones=1, plot_start=-600, ring_start=10, fit_length=65,
+    #             a=0.528, mass_bh=6.105, fit=False, neg_freq=False, agn_freq=None, noise_plot=False, rad=-1)
+    #test.colour_plot(modes=[[2,2]], n_overtones=1, ring_start=126, fit_length=40, neg_freq=False, rad=-1)
+    #test.mismatch_test1(modes=[[4,4]], n_overtones=1, a=0.528, mass_bh=6.105, neg_freq=False, end=75)
+    #test.mismatch(waveform='psi4', modes=[[2,2]], n_overtones=1, ring_start=53, fit_length=60, a=0.756, mass_bh=3.234, rad=-7, printing=True)
     #test.savedata()
-    #test.freq_colour_plot(ring_start=35, fit_length=35, a=0.786, mass_bh=3.2349)
+    test.freq_colour_plot(ring_start=8, fit_length=67, a=0.528, mass_bh=6.105)
+    #test.mass_time_drift([60,100], 100)
+    #test.freq_time_drift([5,25], 75, a=0.528, mass_bh=6.105)
 

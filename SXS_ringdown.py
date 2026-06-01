@@ -35,11 +35,11 @@ class SXSAnalysis:
         self.total_fit = None
 
         self.mass_total = self.sim.metadata['initial_mass1'] + self.sim.metadata['initial_mass2']
-        print(f"Total mass is {self.mass_total}")
+        #print(f"Total mass is {self.mass_total}")
 
     def graph(self, waveform='h', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, 
             ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True,
-            neg_freq=False, agn_freq=None, noise_plot=False):
+            neg_freq=False, agn_freq=None, noise_plot=False, amp_extract=False):
         """
         Arguments
         waveform(string): h, psi4
@@ -66,8 +66,8 @@ class SXSAnalysis:
         ind = np.flatnonzero((modes.LM == mode).all(axis=1))[0]
         signal = modes.data[:, ind]
 
-        peaks, _ = scipy.signal.find_peaks(signal.real) #maybe need different peaks for real and imag
-        main_peak_index = np.argmax(signal.real[peaks])
+        peaks, _ = scipy.signal.find_peaks(np.abs(signal)) #maybe need different peaks for real and imag
+        main_peak_index = np.argmax(np.abs(signal[peaks]))
         peak_t = time[peaks[main_peak_index]] 
 
         time_shift = time-peak_t #t=0 is at peak, full time
@@ -77,7 +77,12 @@ class SXSAnalysis:
 
         signal_fit = signal[t_min:t_max]
         signal_comb = np.concatenate([signal_fit.real, signal_fit.imag])
-        time_comb = np.concatenate([time_fit, time_fit+time_fit[-1]-time_fit[0]]) #potential error with two time coordinates the same
+        time_comb = np.concatenate([time_fit, time_fit]) #potential error with two time coordinates the same
+
+        if agn_freq=="NL":
+            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+            omega_22 = omega_22*scale
+            agn_freq = [2*omega_22.real, -2*omega_22.imag]
 
         p0 = []
         omegas = []
@@ -132,8 +137,8 @@ class SXSAnalysis:
                 signal2 = np.interp(time, time2_shifted, signal2)
                 signal2_plot = signal2[plot_min:plot_max]
                 noise = signal2_plot - signal_plot #divide by some factor in future
-                axs[0].plot(time_plot, signal2_plot.real, label="R02")
-                axs[1].plot(time_plot, signal2_plot.imag, label="R02")
+                axs[0].plot(time_plot, signal2_plot.real, label="Low Res")
+                axs[1].plot(time_plot, signal2_plot.imag, label="Low Res")
 
             if fit:
                 axs[0].plot(time_plot, y_fit_real, label="Fit")
@@ -159,6 +164,12 @@ class SXSAnalysis:
                 ax.legend()
             plt.show()
 
+        if amp_extract:
+            if agn_freq is None:
+                print(f"The peak amplitude for the 2,2,0 mode is {abs(popt[0]*np.exp(ring_start/taus[0]))}") #projected amplitude at t=0
+            else:
+                print(f"The peak amplitude for the (2,2,0)x(2,2,0) mode is {abs(popt[-2]*np.exp(ring_start/taus[-1]))}")
+
         if self.total_signal is None:
             self.total_signal = self.h_data.copy()
             self.total_fit = self.h_fit.copy()
@@ -168,12 +179,12 @@ class SXSAnalysis:
 
     def graphs(self, waveform='h', modes=[[2,2]], n_overtones=0, plot_start=0, plot_end=0, 
             ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None, plot=True, fit=True,
-            neg_freq=False, agn_freq=None, noise_plot=False):
+            neg_freq=False, agn_freq=None, noise_plot=False, amp_extract=False):
         self.total_signal = None
         self.total_fit = None
 
         for m in modes:
-            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, fit, neg_freq, agn_freq, noise_plot)
+            self.graph(waveform, m, n_overtones, plot_start, plot_end, ring_start, fit_start, fit_length, a, mass_bh, plot, fit, neg_freq, agn_freq, noise_plot, amp_extract)
 
         if plot is True:
             mi = self.fit_min
@@ -250,9 +261,9 @@ class SXSAnalysis:
         best_mm = mismatch_axis[min_idx[0],min_idx[1]]
         print(f"Minimum mismatch {best_mm} at mass={best_mass}, spin={best_spin}")
 
-    def freq_colour_plot(self, ring_start, fit_length, a, mass_bh):
-        re_axis = np.arange(1.05,1.2,0.005) #x-axis
-        im_axis = np.arange(0,0.5,0.005) #y-axis
+    def freq_colour_plot(self, ring_start, fit_length, a, mass_bh, freq_plot=True):
+        re_axis = np.arange(1.05,1.2,0.01) #x-axis
+        im_axis = np.arange(0,0.5,0.01) #y-axis
         mismatch_axis = np.zeros((len(im_axis), len(re_axis))) #'heat'
 
         for i,re in enumerate(tqdm.tqdm(re_axis)):
@@ -260,27 +271,67 @@ class SXSAnalysis:
                 self.mismatch(modes=[[4,4]], n_overtones=1, ring_start=ring_start, fit_length=fit_length, a=a, mass_bh=mass_bh, agn_freq=[re,im])
                 mismatch_axis[j,i] = self.mm.copy()
         
-        fig, ax = plt.subplots()
-        ima = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[re_axis.min(), re_axis.max(),
-            im_axis.min(), im_axis.max()])
-        fig.colorbar(ima, ax=ax)
-        ax.set_xlabel(r"Re[$\omega$]")
-        ax.set_ylabel(r"-Im[$\omega$]")
-        plt.plot(1.10945, 0.17025, 'x', color='red') #2w(2,2) for 305 simulation
-        plt.plot(1.17652, 0.44684, 'o') #w(4,4,2)
-        plt.show()
+        if freq_plot:
+            fig, ax = plt.subplots()
+            ima = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[re_axis.min(), re_axis.max(),
+                im_axis.min(), im_axis.max()])
+            fig.colorbar(ima, ax=ax)
+            ax.set_xlabel(r"Re[$\omega$]")
+            ax.set_ylabel(r"-Im[$\omega$]")
+
+            scale = self.mass_total/mass_bh
+            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+            omega_22 = omega_22*scale
+            omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(a)
+            omega_44 = omega_44*scale
+            plt.plot(2*omega_22.real, -2*omega_22.imag, 'x', color='red') #2w(2,2)
+            plt.plot(omega_44.real, -omega_44.imag, 'o') #w(4,4,2)
+            plt.show()
 
         min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
-        best_im = im_axis[min_idx[0]]
-        best_re = re_axis[min_idx[1]]
-        best_mm = mismatch_axis[min_idx[0],min_idx[1]]
-        print(f"Minimum mismatch {best_mm} at -Im[omega]={best_im}, Re[omega]={best_re}")
+        self.best_im = im_axis[min_idx[0]]
+        self.best_re = re_axis[min_idx[1]]
+        self.best_mm = mismatch_axis[min_idx[0],min_idx[1]]
+        #print(f"Minimum mismatch {self.best_mm} at -Im[omega]={self.best_im}, Re[omega]={self.best_re}")
+
+    def freq_time_drift(self, fit_start_range, fit_end, a, mass_bh):
+        times = []
+        best_ims = []
+        best_res = []
+        best_mms = []
+
+        for t in tqdm.tqdm(np.arange(fit_start_range[0], fit_start_range[1], 1)):
+            self.freq_colour_plot(t, fit_end-t, a, mass_bh, freq_plot=False)
+            times.append(t)
+            best_ims.append(self.best_im)
+            best_res.append(self.best_re)
+            best_mms.append(self.best_mm)
+        
+        fig, ax = plt.subplots()
+        sc = ax.scatter(best_res, best_ims, c=times)
+        fig.colorbar(sc, ax=ax, label='Initial Times')
+        ax.grid()
+        ax.set_xlabel(r"Re[$\omega$]")
+        ax.set_ylabel(r"-Im[$\omega$]")
+        scale = self.mass_total/mass_bh
+        omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+        omega_22 = omega_22*scale
+        omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(a)
+        omega_44 = omega_44*scale
+        ax.plot(2*omega_22.real, -2*omega_22.imag, 'x', color='red') #2w(2,2)
+        ax.plot(omega_44.real, -omega_44.imag, '*', color='pink') #w(4,4,2)
+        
+        fig2, ax2 = plt.subplots()
+        ax2.semilogy(times, best_mms)
+        ax2.grid()
+        plt.show()
 
 if __name__ == "__main__":
-    test = SXSAnalysis("SXS:BBH:0389")
-    #test.graphs(waveform='h', modes=[[4,4]], n_overtones=0, plot_start=0, ring_start=0, fit_length=150, a=0.686, mass_bh=0.952, noise_plot=True) 
+    test = SXSAnalysis("SXS:BBH:0305")
+    test.graphs(waveform='h', modes=[[4,4]], n_overtones=1, plot_start=0, ring_start=10, fit_length=80, a=0.692, mass_bh=0.952, fit=True, agn_freq="NL", amp_extract=True) 
     #test.mismatch()
     #test.mismatch_test1()
     #test.colour_plot(modes=[[4,4]], n_overtones=1, ring_start=20, fit_length=60)
-    test.freq_colour_plot(ring_start=25, fit_length=55, a=0.686, mass_bh=0.952)
+    #test.freq_colour_plot(ring_start=32, fit_length=50, a=0.692, mass_bh=0.952)
+    #test.freq_time_drift([15,45], 80, a=0.686, mass_bh=0.952)
 

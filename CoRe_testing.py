@@ -4,19 +4,21 @@ import qnm
 import matplotlib.pyplot as plt
 from watpy.coredb.coredb import *
 import os
+from scipy.integrate import cumulative_trapezoid
 
 class CoReSelection:
-    def __init__(self):
-        self.cdb = CoRe_db('./Data_Tests/') #clones files here
-        self.idb = self.cdb.idb #idb.index gives list of all simulations, .data[] of these gives metadata
+    def __init__(self, load=True):
+        if load:
+            self.cdb = CoRe_db('./Data_Tests/') #clones files here
+            self.idb = self.cdb.idb #idb.index gives list of all simulations, .data[] of these gives metadata
 
     def metadata(self, id='BAM:0125'):
         for i in self.idb.index: #checking metadata
             if i.data['database_key'] == id:
                 for j, k in i.data.items():
                     print(f"{j} = {k}")
-
-    def selection(self, eos=None, reference_bibkey=None, mass=None, mass_ratio=None, id_type=None, sync=False, printing=False):
+    
+    def selection(self, eos=None, reference_bibkey=None, mass=None, mass_ratio=None, id_type=None, binary_type=None, sync=False, printing=False):
         """
         Examples:
         eos='SLy', reference_bibkey='Dietrich:2017aum', mass=[2.5,3], mass_ratio=[0.9,1.1], id_type='Irrotational'
@@ -26,14 +28,17 @@ class CoReSelection:
         mass_list = []
         mass_ratio_list = []
         eos_list = []
+        binary_type_list = []
+        self.sim_list = []
         for i in self.idb.index:
             m = i.data
             if ((eos is None or m['id_eos']==eos) and 
                 (reference_bibkey is None or reference_bibkey in m['reference_bibkeys']) and 
                 (mass is None or mass[0]<=float(m['id_mass'])<=mass[1]) and 
                 (mass_ratio is None or mass_ratio[0]<=float(m['id_mass_ratio'])<=mass_ratio[1]) and 
-                (id_type is None or m['id_type']==id_type)):
+                (id_type is None or m['id_type']==id_type) and (binary_type is None or m['binary_type']==binary_type)):
                 self.sim_id.append(m['database_key'])
+                self.sim_list.append([m['database_key'], float(m['id_mass']), float(m['id_mass_ratio']), m['id_eos']])
                 mass_list.append(float(m['id_mass']))
                 mass_ratio_list.append(float(m['id_mass_ratio']))
                 eos_list.append(m['id_eos'])
@@ -48,19 +53,28 @@ class CoReSelection:
                 if m['reference_bibkeys'] not in bibkeys:
                     # if 'rpsi4_44' in R01_data:
                     bibkeys.append(m['reference_bibkeys'])
+                
+                if m['binary_type'] not in binary_type_list:
+                    binary_type_list.append(m['binary_type'])
         if sync:
             self.cdb.sync(dbkeys=self.sim_id, lfs=True, prot='https')
         if printing:
-            print(self.sim_id)
+            #print(self.sim_id)
             # print(bibkeys)
             # print(len(self.sim_id))
-            print(mass_list)
+            #print(mass_list)
             # print(np.mean(mass_list))
-            print(mass_ratio_list)
+            #print(mass_ratio_list)
             # print(np.mean(mass_ratio_list))
-            print(eos_list)
+            #print(eos_list)
+            #print(binary_type_list)
+            print(self.sim_list)
     
-    def plot(self, id='BAM:0125', mode='rpsi4_44'):
+    def plot(self, id='BAM:0125', show=True, mode='rpsi4_22', rad=-1, ax1=None, ax2=None):
+        if ax1 is None or ax2 is None:
+            _, ax1 = plt.subplots()
+            _, ax2 = plt.subplots()
+
         path = f"Data_Tests/{id.replace(':', '_')}/R01/data.h5"
         try:
             R01_data = h5py.File(path, 'r')
@@ -75,19 +89,54 @@ class CoReSelection:
             print(f"Skipping {id} - file corrupted (bad HDF5 structure)")
             return
         series = R01_data[mode]
-        keys = list(series.keys())
-        series_r = series[keys[-1]][:] #selects largest extraction radius
+        keys = [k for k in series.keys() if series[k].shape[0] > 0 and k.split('r')[-1].split('.')[0].lstrip('-').isdigit()]
+        if not keys:
+            print(f"Skipping {id} - no valid extraction radii found")
+            return
+        #print(keys)
+        series_r = series[keys[rad]][:]
         signal = series_r.T[1] + 1j*series_r.T[2]
         time = series_r.T[0]
-        #print(len(time))
-        plt.plot(time,np.real(signal))
-        plt.title(f"{id} Re[{mode}]")
-        plt.grid()
+        
+        radius = int(keys[rad].split('r')[-1].split('.')[0])
+        if rad == -1:
+            coeff = (2 - 1) * (2 + 2) / (2.0 * radius)
+            integral = cumulative_trapezoid(signal, time, initial=0)
+            signal2 = signal - coeff*integral
+            ax1.plot(time, np.real(signal2), label=f"Extraction radius {radius}, correction")
+            ax2.semilogy(time, np.abs(signal2), label=f"Extraction radius {radius}, correction")
+
+        ax1.plot(time, np.real(signal), label=f"Extraction radius {radius}, no correction")
+        ax2.semilogy(time, np.abs(signal), label=f"Extraction radius {radius}, no correction")
+        ax1.set_title(f"{id} Re[{mode}]")
+        ax1.grid()
+        ax2.grid()
+
+        if show:
+            ax1.legend()
+            ax2.legend()
+            plt.show()
+
+    def plot_extradius(self, id='BAM:0125', mode='rpsi4_22', len=5):
+        _, ax1 = plt.subplots()
+        _, ax2 = plt.subplots()
+        for i in range(1, len):
+            self.plot(id=id, mode=mode, show=False, rad=-i, ax1=ax1, ax2=ax2)
+        ax1.legend()
+        ax2.legend()
         plt.show()
     
     def plot_selection(self, eos=None, reference_bibkey=None, mass=None, mass_ratio=None, id_type=None):
         self.selection(eos, reference_bibkey, mass, mass_ratio, id_type)
-        for i in self.sim_id:
+        
+        local_dirs = [
+            d.replace('_', ':', 1)
+            for d in os.listdir('Data_Tests')
+            if d.startswith('BAM_') and os.path.isdir(f'Data_Tests/{d}')
+            and 176 <= int(d.split('_')[1]) <= 226
+        ] #used claude code
+        all_ids = list(self.sim_id) + [i for i in local_dirs if i not in self.sim_id]
+        for i in all_ids:
             self.plot(i)
 
 
@@ -107,8 +156,10 @@ def plot_log():
     plt.legend(loc='upper right')
     plt.show()
 
-obj = CoReSelection()
-#obj.selection(reference_bibkey='Schianchi:2024vvi', printing=True)
-obj.plot('BAM:0166')
-#obj.plot_selection(eos='BLh')
+obj = CoReSelection(load=False)
+#obj.selection(eos='DD2', mass=[3.29,3.33], mass_ratio=[0.99,1.01], printing=True)
+obj.plot('THC:0024', mode='rpsi4_22')
+#obj.plot_selection()
 #plot_log()
+#obj.plot_extradius(id="BAM:0138", len=7)
+
