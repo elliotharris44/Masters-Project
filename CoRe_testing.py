@@ -103,12 +103,32 @@ class CoReSelection:
             coeff = (2 - 1) * (2 + 2) / (2.0 * radius)
             integral = cumulative_trapezoid(signal, time, initial=0)
             signal2 = signal - coeff*integral
-            ax1.plot(time, np.real(signal2), label=f"Extraction radius {radius}, correction")
-            ax2.semilogy(time, np.abs(signal2), label=f"Extraction radius {radius}, correction")
+            # ax1.plot(time, np.real(signal2), label=f"Extraction radius {radius}, correction")
+            # ax2.semilogy(time, np.abs(signal2), label=f"Extraction radius {radius}, correction")
 
-        ax1.plot(time, np.real(signal), label=f"Extraction radius {radius}, no correction")
+        try:
+            series_2 = h5py.File(f"Data_Tests/{id.replace(':', '_')}/R02/data.h5", 'r')['rpsi4_22'] #change between resolutions and modes
+        except OSError:
+            print(f"Skipping {id} - file could not be opened (possibly corrupted)")
+            return
+        keys2 = [k for k in series_2.keys() if series_2[k].shape[0] > 0 and k.split('r')[-1].split('.')[0].lstrip('-').isdigit()]
+        try:
+            series_r_2 = series_2[keys2[rad]][:]
+        except OSError:
+            print(f"Skipping {id} - file could not be opened (possibly corrupted)")
+            return
+        signal_2 = series_r_2.T[1] + 1j*series_r_2.T[2]
+        time_2 = series_r_2.T[0]
+        signal.real = signal.real/np.max(signal.real)
+        signal_2.real = signal_2.real/np.max(signal_2.real)
+        ax1.plot(time_2, np.real(signal_2), label=r"$R02$ (2,2) waveform")
+        ax1.plot(time, np.real(signal), label=r"$R01$ (2,2) waveform")
+
+        ax1.set_xlabel(r"Time [M]", fontsize='large')
+        ax1.set_ylabel(r"$\mathrm{Re}[r\psi_{4}] [M^{-1}]$", fontsize='large')
+        #ax1.plot(time, np.real(signal), label=f"Extraction radius {radius}, no correction")
         ax2.semilogy(time, np.abs(signal), label=f"Extraction radius {radius}, no correction")
-        ax1.set_title(f"{id} Re[{mode}]")
+        #ax1.set_title(f"{id} Re[{mode}]")
         ax1.grid()
         ax2.grid()
 
@@ -158,7 +178,7 @@ def plot_log():
 
 obj = CoReSelection(load=False)
 #obj.selection(eos='DD2', mass=[3.29,3.33], mass_ratio=[0.99,1.01], printing=True)
-obj.plot('THC:0024', mode='rpsi4_22')
+obj.plot('BAM:0012', mode='rpsi4_22', rad=-1)
 #obj.plot_selection()
 #plot_log()
 #obj.plot_extradius(id="BAM:0138", len=7)
