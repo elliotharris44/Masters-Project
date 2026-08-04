@@ -21,7 +21,7 @@ time = strain.time
 h_plus = h.real
 h_cross = h.imag
 
-#print(dir(strain.data))
+print(dir(strain.metadata))
 #print(len(h_plus))
 
 plt.plot(time,h_cross, label=r"(2,2) waveform")
@@ -30,7 +30,7 @@ plt.ylabel(r"$\mathrm{Re}[r\psi_{4}] [M^{-1}]$", fontsize='large')
 plt.grid()
 #plt.plot(time[start:end],h_plus[start:end])
 #plt.legend()
-plt.show()
+#plt.show()
 
 
 

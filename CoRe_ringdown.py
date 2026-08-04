@@ -27,7 +27,7 @@ class CoReAnalysis:
 
     def graph(self, waveform='psi4', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0, ring_start=64,
                fit_start=0, fit_length=50, a=None, mass_bh=None, skew=False,
-               neg_freq=False, agn_freq=None, shift_time=None, rad=-1, resolution='R01'):
+               neg_freq=False, retrograde=False, agn_freq=None, shift_time=None, rad=-1, resolution='R01'):
         """
         Arguments:
         waveform(string): h for strain, 22 ect for psi4 l=2, m=2 mode
@@ -72,6 +72,11 @@ class CoReAnalysis:
         signal_comb = np.concatenate([signal_fit.real, signal_fit.imag])
         time_comb = np.concatenate([time_fit, time_fit]) #potential error with two time coordinates the same
 
+        if agn_freq=="NL":
+            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+            omega_22 = omega_22*self.mass_total/mass_bh
+            agn_freq = [2*omega_22.real, -2*omega_22.imag]
+
         p0 = []
         omegas = []
         taus = []
@@ -79,18 +84,23 @@ class CoReAnalysis:
             sign = [+1,-1] #for the two frequencies
         else:
             sign =[+1]
-        for s in sign:
-            for n in range(n_overtones+1):
-                grav_lmn = qnm.modes_cache(s=-2,l=mode[0],m=mode[1],n=n)
-                if a is None:
-                    omega, _, _ = grav_lmn(0.798)
-                else:
-                    omega, _, _ = grav_lmn(a)
-                omega = omega*self.mass_total/mass_bh
-                omegas.append(s*np.real(omega)) #positive and negative frequencies
-                taus.append(-1/np.imag(omega))
-                p0 += [0.01, 0] #parameter guesses
-                print(f"Re[omega] is {omega.real}, -Im[omega] is {-omega.imag}")
+        if retrograde:
+            sign_r = [+1, -1]
+        else:
+            sign_r = [+1]
+        for r in sign_r:
+            for s in sign:
+                for n in range(n_overtones+1):
+                    grav_lmn = qnm.modes_cache(s=-2,l=mode[0],m=r*mode[1],n=n)
+                    if a is None:
+                        omega, _, _ = grav_lmn(0.798)
+                    else:
+                        omega, _, _ = grav_lmn(a)
+                    omega = omega*self.mass_total/mass_bh
+                    omegas.append(s*np.real(omega)) #positive and negative frequencies
+                    taus.append(-1/np.imag(omega))
+                    p0 += [0.01, 0] #parameter guesses
+                    #print(f"Re[omega] is {omega.real}, -Im[omega] is {-omega.imag}")
 
         if agn_freq is not None:
             omegas.append(agn_freq[0]) #in units of total binary mass
@@ -125,7 +135,18 @@ class CoReAnalysis:
         else:
             self.total_signal += self.h_data
             self.total_fit += self.h_fit
-    
+
+        amplitudes = [] #complex amplitudes
+        N = len(omegas) #not len(popt)//2: skew appends extra non-amplitude params to popt
+        for n in range(N):
+            A = popt[2*n]
+            #print(A)
+            phi = popt[2*n+1]
+            omega = omegas[n] - 1j/taus[n]
+            amplitudes.append(A*np.exp(1j*(omega*ring_start-phi)))
+
+        #print(f"Peak Amplitudes: {np.abs(amplitudes)}")
+
     def graphs(self, modes=[[2,2]], models=[{}], fit=True, resolutions=None, **kwargs):
         """
         Made with Claude code
@@ -145,6 +166,7 @@ class CoReAnalysis:
                     custom_label = model_spec.pop('label', None)
                     n = model_spec.get('n_overtones', kwargs.get('n_overtones', 0))
                     neg = model_spec.get('neg_freq', kwargs.get('neg_freq', False))
+                    ret = model_spec.get('retrograde', kwargs.get('retrograde', False))
                     agn = model_spec.get('agn_freq', kwargs.get('agn_freq', None))
                     rad = model_spec.get('rad', None)
                     self.total_signal = None
@@ -157,9 +179,11 @@ class CoReAnalysis:
                         label_parts.append(f"({m[0]},{m[1]})")
                     label_parts.append(f"n={n}")
                     if neg:
-                        label_parts.append("+neg")
+                        label_parts.append("+ neg")
+                    if ret:
+                        label_parts.append("+ ret")
                     if agn is not None:
-                        label_parts.append("+agn")
+                        label_parts.append("+ agn")
                     if rad is not None:
                         label_parts.append(f"r={self.rad_value}")
                     label = custom_label if custom_label is not None else ' '.join(label_parts)
@@ -244,25 +268,33 @@ class CoReAnalysis:
         if printing:
             print(self.mm)
     
-    def mismatch_test1(self, end=80, overtones=None, **kwargs):
-        if overtones is None:
-            overtones_list = [kwargs.get('n_overtones', 0)]
-            show_legend = False
-        else:
-            overtones_list = list(overtones) if hasattr(overtones, '__iter__') else [overtones]
-            show_legend = True
+    def mismatch_test1(self, window=[0,90], end=80, models=[{}], **kwargs):
+        show_legend = len(models) > 1
 
-        for n in overtones_list:
-            kw = dict(kwargs)
-            kw['n_overtones'] = n
+        for model_spec in models:
+            model_spec = model_spec.copy()
+            n = model_spec.get('n_overtones', kwargs.get('n_overtones', 0))
+            neg = model_spec.get('neg_freq', kwargs.get('neg_freq', False))
+            ret = model_spec.get('retrograde', kwargs.get('retrograde', False))
+            agn = model_spec.get('agn_freq', kwargs.get('agn_freq', None))
+            label_parts = [f"n={n}"]
+            if neg:
+                label_parts.append("+ neg")
+            if ret:
+                label_parts.append("+ ret")
+            if agn is not None:
+                label_parts.append("+ agn")
+            label = model_spec.pop('label', ' '.join(label_parts))
+
+            kw = {**kwargs, **model_spec}
             test_param = []
             mm = []
-            for i in np.arange(0, 90):
+            for i in np.arange(window[0], window[1], 1):
                 self.mismatch(ring_start=i, fit_length=end-i, **kw)
                 test_param.append(i)
                 mm.append(self.mm.copy())
-            print(f"N={n}: mismatch {np.min(mm):.2e} minimum at start time {test_param[np.argmin(mm)]}")
-            plt.semilogy(test_param, mm, label=f"n={n}" if show_legend else None)
+            print(f"{label}: mismatch {np.min(mm):.2e} minimum at start time {test_param[np.argmin(mm)]}")
+            plt.semilogy(test_param, mm, label=label if show_legend else None)
 
         plt.xlabel("Start Time [M]", fontsize='large')
         plt.ylabel("Mismatch", fontsize='large')
@@ -287,11 +319,11 @@ class CoReAnalysis:
         plt.show()
     
     def colour_plot(self, ring_start=64, fit_length=50, mass_plot=True, **kwargs):
-        # spin_axis = np.arange(0.4,0.9,0.01) #x-axis
-        # mass_axis = np.arange(3,3.4,0.01) #y-axis
+        spin_axis = np.arange(0.3,0.9,0.01) #x-axis
+        mass_axis = np.arange(2.3,3.2,0.01) #y-axis
 
-        spin_axis = np.arange(0.78,0.82,0.001) #x-axis
-        mass_axis = np.arange(3.24,3.28,0.001) #y-axis
+        # spin_axis = np.arange(0.78,0.82,0.001) #x-axis
+        # mass_axis = np.arange(3.23,3.27,0.001) #y-axis
 
         mismatch_axis = np.zeros((len(mass_axis), len(spin_axis))) #'heat'
 
@@ -351,6 +383,37 @@ class CoReAnalysis:
         print(f"Minimum mismatch {self.best_mm} at Re[omega]={self.best_re}, -Im[omega]={self.best_im}")
         print(f"Non-linear mode (2,2,0)x(2,2,0): Re[omega]={2*omega_22.real}, -Im[omega]={-2*omega_22.imag}")
         print(f"Second overtone (4,4,2): Re[omega]={omega_44.real}, -Im[omega]={-omega_44.imag}")
+
+    def fund_colour_plot(self, waveform, ring_start, fit_length, a, mass_bh, freq_plot=True, neg_freq=False):
+                re_axis = np.arange(0.5,0.6,0.001) #x-axis
+                im_axis = np.arange(0.07,0.12,0.001) #y-axis
+                mismatch_axis = np.zeros((len(im_axis), len(re_axis))) #'heat'
+        
+                for i,re in enumerate(tqdm.tqdm(re_axis)):
+                    for j,im in enumerate(im_axis):
+                        self.mismatch(waveform=waveform, modes=[[2,2]], n_overtones=-1, ring_start=ring_start, fit_length=fit_length, a=a, mass_bh=mass_bh, neg_freq=neg_freq, agn_freq=[re,im])
+                        mismatch_axis[j,i] = self.mm.copy()
+        
+                omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
+                omega_22 = omega_22*self.mass_total/mass_bh
+        
+                if freq_plot:
+                    fig, ax = plt.subplots()
+                    ima = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[re_axis.min(), re_axis.max(),
+                        im_axis.min(), im_axis.max()])
+                    fig.colorbar(ima, ax=ax, label='Mismatch')
+                    ax.set_xlabel(r"Re[$M\omega$]", fontsize='large')
+                    ax.set_ylabel(r"-Im[$M\omega$]", fontsize='large')
+                    plt.plot(omega_22.real, -omega_22.imag, 'x', color='red', label='(2,2,0) qnm Package')
+                    plt.legend()
+                    plt.show()
+        
+                min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
+                self.best_im = im_axis[min_idx[0]]
+                self.best_re = re_axis[min_idx[1]]
+                self.best_mm = mismatch_axis[min_idx[0],min_idx[1]]
+                print(f"Minimum mismatch {self.best_mm} at Re[omega]={self.best_re}, -Im[omega]={self.best_im}")
+                print(f"Fundamental mode (2,2,0): Re[omega]={omega_22.real}, -Im[omega]={-omega_22.imag}")
     
     def mass_time_drift(self, fit_start_range, fit_end, **kwargs):
         times = []
@@ -358,7 +421,7 @@ class CoReAnalysis:
         best_spins = []
         best_mms = []
 
-        for t in tqdm.tqdm(np.arange(fit_start_range[0], fit_start_range[1], 2)):
+        for t in tqdm.tqdm(np.arange(fit_start_range[0], fit_start_range[1], 1)):
             self.colour_plot(ring_start=t, fit_length=fit_end-t, mass_plot=False, **kwargs)
             times.append(t)
             best_masses.append(self.best_mass)
@@ -381,7 +444,6 @@ class CoReAnalysis:
         plt.show()
 
     def mass_rad_drift(self, rads, ring_start=64, fit_length=50, **kwargs):
-        #made with Claude code
         rad_values = []
         best_masses = []
         best_spins = []
@@ -444,16 +506,17 @@ class CoReAnalysis:
         plt.show()
 
 if __name__ == "__main__":
-    test = CoReAnalysis("BAM_0138")
-    test.graphs(waveform='psi4', modes=[[2,2]], models=[{'n_overtones':0}],
-                plot_start=-50, ring_start=55, fit_length=70, a=0.79, mass_bh=2.864, neg_freq=False, fit=False)
-    #test.colour_plot(modes=[[2,2]], n_overtones=1, ring_start=40, fit_length=40, neg_freq=False)
-    #test.mismatch_test1(waveform='psi4', mode=[2,2], n_overtones=1, a=0.756, mass_bh=3.234, neg_freq=False, end=105)
+    test = CoReAnalysis("BAM_0140")
+    # test.graphs(waveform='psi4', modes=[[2,2]], models=[{'n_overtones':0}],
+    #             plot_start=-300, ring_start=0, fit_length=3000, a=0.79, mass_bh=2.864, neg_freq=False, fit=False)
+    #test.colour_plot(modes=[[2,2]], n_overtones=1, ring_start=0, fit_length=34, neg_freq=False)
+    #test.mismatch_test1(waveform='psi4', mode=[2,2], models=[{'n_overtones':0}], a=0.73, mass_bh=2.67, neg_freq=False, window=[0,20], end=34)
     #test.mismatch_test2(rads=[-1, -2, -3, -4, -5, -6,-7, -8, -9, -10, -11, -12], n_overtones=1, ring_start=53, fit_length=60, a=0.756, mass_bh=3.234)
     #test.mismatch(waveform='psi4', mode=[2,2], n_overtones=0, ring_start=55, fit_length=50, a=0.79, mass_bh=2.864, neg_freq=True, printing=True)
     #test.savedata()
     #test.freq_colour_plot(waveform='psi4', ring_start=22, fit_length=50, a=0.79, mass_bh=3.26, neg_freq=False)
-    #test.mass_time_drift(waveform='psi4', mode=[2,2], n_overtones=0, fit_start_range=[35,65], fit_end=80)
+    test.fund_colour_plot(waveform='psi4', ring_start=40, fit_length=68, a=0.795, mass_bh=3.231)
+    #test.mass_time_drift(waveform='psi4', mode=[2,2], n_overtones=0, fit_start_range=[888,893], fit_end=914)
     #test.freq_time_drift('psi4', [18,28], 72, a=0.79, mass_bh=3.26, neg_freq=False)
     #test.mass_rad_drift(rads=[-1,-2,-3,-4,-5,-6], n_overtones=1, ring_start=882, fit_length=32)
 

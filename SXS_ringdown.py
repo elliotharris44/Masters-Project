@@ -20,9 +20,9 @@ class SXSAnalysis:
         except KeyError:
             a_vec = 'NaN'
         if isinstance(a_vec,str) and a_vec=='NaN':
-            self.a = 0.7 #guess
+            self.a_metadata = 0.7 #guess
         else:
-            self.a = np.linalg.norm(np.array(a_vec))
+            self.a_metadata = np.linalg.norm(np.array(a_vec))
 
         self.strain = self.sim.strain
         self.psi4 = self.sim.psi4
@@ -38,7 +38,7 @@ class SXSAnalysis:
 
     def graph(self, waveform='psi4', mode=[2,2], n_overtones=0, plot_start=0, plot_end=0,
             ring_start=32, fit_start=0, fit_length=50, a=None, mass_bh=None,
-            neg_freq=False, agn_freq=None):
+            neg_freq=False, retrograde=False, agn_freq=None):
         """
         Arguments
         waveform(string): h, psi4
@@ -50,7 +50,7 @@ class SXSAnalysis:
             mass_bh = self.sim.metadata['remnant_mass']
             if isinstance(mass_bh,str) and mass_bh=='NaN':
                 mass_bh = 0.952
-        scale = self.mass_total/mass_bh
+        self.scale = self.mass_total/mass_bh
         if waveform=='h':
             modes = self.strain
         else:
@@ -72,9 +72,14 @@ class SXSAnalysis:
         signal_comb = np.concatenate([signal_fit.real, signal_fit.imag])
         time_comb = np.concatenate([time_fit, time_fit])
 
+        if a is None:
+            self.a = self.a_metadata.copy()
+        else:
+            self.a = a
+
         if agn_freq=="NL":
-            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
-            omega_22 = omega_22*scale
+            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(self.a)
+            omega_22 = omega_22*self.scale
             agn_freq = [2*omega_22.real, -2*omega_22.imag]
 
         p0 = []
@@ -84,17 +89,20 @@ class SXSAnalysis:
             sign = [+1, -1]
         else:
             sign = [+1]
-        for s in sign:
-            for n in range(n_overtones+1):
-                grav_lmn = qnm.modes_cache(s=-2,l=mode[0],m=mode[1],n=n)
-                if a is None:
-                    omega, _, _ = grav_lmn(self.a)
-                else:
-                    omega, _, _ = grav_lmn(a)
-                omega = omega*scale
-                omegas.append(s*np.real(omega))
-                taus.append(-1/np.imag(omega))
-                p0 += [0.01, 0]
+        if retrograde:
+            sign_r = [+1, -1]
+        else:
+            sign_r = [+1]
+        for r in sign_r:
+            for s in sign:
+                for n in range(n_overtones+1):
+                    grav_lmn = qnm.modes_cache(s=-2,l=mode[0],m=r*mode[1],n=n)
+                    omega, _, mix = grav_lmn(self.a)
+                    omega = omega*self.scale
+                    omegas.append(s*np.real(omega))
+                    taus.append(-1/np.imag(omega))
+                    p0 += [0.01, 0]
+                    #print(f"Re[omega] is {s*omega.real}, -Im[omega] is {-omega.imag}")
         if agn_freq is not None:
             omegas.append(agn_freq[0])
             taus.append(1/(agn_freq[1]))
@@ -121,6 +129,19 @@ class SXSAnalysis:
         else:
             self.total_signal += self.h_data
             self.total_fit += self.h_fit
+        
+        amplitudes = [] #complex amplitudes
+        N = len(popt)//2 
+        for n in range(N):
+            A = popt[2*n]
+            phi = popt[2*n+1]
+            omega = omegas[n] - 1j/taus[n]
+            amplitudes.append(A*np.exp(1j*(omega*ring_start+phi)))
+        # if mode == [4,4]:
+        #     print(np.real(mix[0]))
+        #     amplitudes = amplitudes/np.real(mix[0])
+
+        #print(f"Peak Amplitudes: {np.abs(amplitudes)}")
 
     def graphs(self, modes=[[2,2]], models=[{}], fit=True, **kwargs):
         self.total_signal = None
@@ -137,12 +158,15 @@ class SXSAnalysis:
                     label_parts.append(f"({m[0]},{m[1]})")
                 n = model_spec.get('n_overtones', kwargs.get('n_overtones', 0))
                 neg = model_spec.get('neg_freq', kwargs.get('neg_freq', False))
+                ret = model_spec.get('retrograde', kwargs.get('retrograde', False))
                 agn = model_spec.get('agn_freq', kwargs.get('agn_freq', None))
                 label_parts.append(f"n={n}")
                 if neg:
-                    label_parts.append("+neg")
+                    label_parts.append("+ neg")
+                if ret:
+                    label_parts.append("+ ret")
                 if agn is not None:
-                    label_parts.append("+agn")
+                    label_parts.append("+ agn")
                 label = model_spec.pop('label', ' '.join(label_parts))
                 self.graph(mode=m, **{**kwargs, **model_spec})
                 results.append({
@@ -191,7 +215,7 @@ class SXSAnalysis:
         for ax in axs:
             ax.grid()
             ax.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
-        plt.show()
+        #plt.show()
 
         _, axs = plt.subplots(2, 1)
         plotted_modes = set()
@@ -210,7 +234,7 @@ class SXSAnalysis:
         for ax in axs:
             ax.grid()
             ax.legend()
-        plt.show()
+        #plt.show()
 
     def mismatch(self, printing=False, modes=None, **kwargs):
         self.total_signal = None
@@ -224,25 +248,33 @@ class SXSAnalysis:
         if printing:
             print(self.mm)
 
-    def mismatch_test1(self, end=80, overtones=None, **kwargs):
-        if overtones is None:
-            overtones_list = [kwargs.get('n_overtones', 0)]
-            show_legend = False
-        else:
-            overtones_list = list(overtones) if hasattr(overtones, '__iter__') else [overtones]
-            show_legend = True
+    def mismatch_test1(self, window=[0,50], end=80, models=[{}], **kwargs):
+        show_legend = len(models) > 1
 
-        for n in overtones_list:
-            kw = dict(kwargs)
-            kw['n_overtones'] = n
+        for model_spec in models:
+            model_spec = model_spec.copy()
+            n = model_spec.get('n_overtones', kwargs.get('n_overtones', 0))
+            neg = model_spec.get('neg_freq', kwargs.get('neg_freq', False))
+            ret = model_spec.get('retrograde', kwargs.get('retrograde', False))
+            agn = model_spec.get('agn_freq', kwargs.get('agn_freq', None))
+            label_parts = [f"n={n}"]
+            if neg:
+                label_parts.append("+ neg")
+            if ret:
+                label_parts.append("+ ret")
+            if agn is not None:
+                label_parts.append("+ agn")
+            label = model_spec.pop('label', ' '.join(label_parts))
+
+            kw = {**kwargs, **model_spec}
             test_param = []
             mm = []
-            for i in np.arange(0, 70, 1):
+            for i in np.arange(window[0], window[1], 1):
                 self.mismatch(ring_start=i, fit_length=end-i, **kw)
                 test_param.append(i)
                 mm.append(self.mm.copy())
-            print(f"N={n}: mismatch {np.min(mm):.2e} minimum at start time {test_param[np.argmin(mm)]}")
-            plt.semilogy(test_param, mm, label=f"n={n}" if show_legend else None)
+            print(f"{label}: mismatch {np.min(mm):.2e} minimum at start time {test_param[np.argmin(mm)]}")
+            plt.semilogy(test_param, mm, label=label if show_legend else None)
 
         plt.xlabel("Start Time [M]", fontsize='large')
         plt.ylabel("Mismatch", fontsize='large')
@@ -311,11 +343,10 @@ class SXSAnalysis:
                 self.mismatch(waveform=waveform, modes=[[4,4]], n_overtones=1, ring_start=ring_start, fit_length=fit_length, a=a, mass_bh=mass_bh, neg_freq=neg_freq, agn_freq=[re,im])
                 mismatch_axis[j,i] = self.mm.copy()
 
-        scale = self.mass_total/mass_bh
-        omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
-        omega_22 = omega_22*scale
-        omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(a)
-        omega_44 = omega_44*scale
+        omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(self.a)
+        omega_22 = omega_22*self.scale
+        omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(self.a)
+        omega_44 = omega_44*self.scale
 
         if freq_plot:
             fig, ax = plt.subplots()
@@ -336,6 +367,37 @@ class SXSAnalysis:
         print(f"Minimum mismatch {self.best_mm} at Re[omega]={self.best_re}, -Im[omega]={self.best_im}")
         print(f"Non-linear mode (2,2,0)x(2,2,0): Re[omega]={2*omega_22.real}, -Im[omega]={-2*omega_22.imag}")
         print(f"Second overtone (4,4,2): Re[omega]={omega_44.real}, -Im[omega]={-omega_44.imag}")
+
+    def fund_colour_plot(self, waveform, ring_start, fit_length, a, mass_bh, freq_plot=True, neg_freq=False):
+            re_axis = np.arange(0.5,0.6,0.001) #x-axis
+            im_axis = np.arange(0.06,0.1,0.001) #y-axis
+            mismatch_axis = np.zeros((len(im_axis), len(re_axis))) #'heat'
+    
+            for i,re in enumerate(tqdm.tqdm(re_axis)):
+                for j,im in enumerate(im_axis):
+                    self.mismatch(waveform=waveform, modes=[[2,2]], n_overtones=-1, ring_start=ring_start, fit_length=fit_length, a=a, mass_bh=mass_bh, neg_freq=neg_freq, agn_freq=[re,im])
+                    mismatch_axis[j,i] = self.mm.copy()
+    
+            omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(self.a)
+            omega_22 = omega_22*self.scale
+    
+            if freq_plot:
+                fig, ax = plt.subplots()
+                ima = ax.imshow(mismatch_axis, norm='log', origin='lower', aspect='auto', extent=[re_axis.min(), re_axis.max(),
+                    im_axis.min(), im_axis.max()])
+                fig.colorbar(ima, ax=ax, label='Mismatch')
+                ax.set_xlabel(r"Re[$M\omega$]", fontsize='large')
+                ax.set_ylabel(r"-Im[$M\omega$]", fontsize='large')
+                plt.plot(omega_22.real, -omega_22.imag, 'x', color='red', label='(2,2,0) qnm Package')
+                plt.legend()
+                plt.show()
+    
+            min_idx = np.unravel_index(np.argmin(mismatch_axis), mismatch_axis.shape)
+            self.best_im = im_axis[min_idx[0]]
+            self.best_re = re_axis[min_idx[1]]
+            self.best_mm = mismatch_axis[min_idx[0],min_idx[1]]
+            #print(f"Minimum mismatch {self.best_mm} at Re[omega]={self.best_re}, -Im[omega]={self.best_im}")
+            #print(f"Fundamental mode (2,2,0): Re[omega]={omega_22.real}, -Im[omega]={-omega_22.imag}")
 
     def mass_time_drift(self, fit_start_range, fit_end, **kwargs):
         times = []
@@ -381,11 +443,11 @@ class SXSAnalysis:
         ax.grid()
         ax.set_xlabel(r"Re[$M\omega$]", fontsize='large')
         ax.set_ylabel(r"-Im[$M\omega$]", fontsize='large')
-        scale = self.mass_total/mass_bh
-        omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(a)
-        omega_22 = omega_22*scale
-        omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(a)
-        omega_44 = omega_44*scale
+
+        omega_22, _, _ = qnm.modes_cache(s=-2,l=2,m=2,n=0)(self.a)
+        omega_22 = omega_22*self.scale
+        omega_44, _, _ = qnm.modes_cache(s=-2,l=4,m=4,n=2)(self.a)
+        omega_44 = omega_44*self.scale
         ax.plot(2*omega_22.real, -2*omega_22.imag, 'x', color='red', label='(2,2,0)x(2,2,0)')
         ax.plot(omega_44.real, -omega_44.imag, '*', color='black', label='(4,4,2)')
         ax.legend()
@@ -398,11 +460,16 @@ class SXSAnalysis:
         plt.show()
 
 if __name__ == "__main__":
-    test = SXSAnalysis("SXS:BBH:0305")
-    test.graphs(waveform='psi4', modes=[[2,2]], models=[{'n_overtones':0}], 
-                plot_start=0, ring_start=20, fit_length=150, a=0.692, mass_bh=0.952, fit=True)
-    #test.mismatch(mode=[2,2], n_overtones=0, ring_start=25, fit_length=45, a=0.692, mass_bh=0.952, printing=True)
-    #test.mismatch_test1(mode=[4,4], overtones=[2], a=0.692, mass_bh=0.952, end=100)
+    #test = SXSAnalysis(f"SXS:BBH:0305")
+    for id in {'1502', '1476', '1506', '1508', '1474', '1505', '1504', '1485', '1486', '1500', '1492', '1465', '1458', '1438', '1430'}:
+        test = SXSAnalysis(f"SXS:BBH:{id}")
+        print(f"Simulation: {id}")
+        test.graphs(waveform='h', modes=[[4,4]], models=[{'n_overtones':1}], 
+                    plot_start=0, ring_start=15, fit_length=85, fit=True)
+    #test.mismatch(mode=[2,2], n_overtones=0, ring_start=25, fit_length=45, printing=True)
+    # test.mismatch_test1(mode=[2,2], models=[{'n_overtones':0, 'neg_freq':True}, {'n_overtones':0, 'retrograde':True}],
+    #                     window=[0,50], end=100)
     #test.colour_plot(modes=[[2,2]], n_overtones=1, ring_start=20, fit_length=50)
-    #test.freq_colour_plot('psi4', ring_start=20, fit_length=80, a=0.692, mass_bh=0.952)
-    #test.freq_time_drift('psi4', [5,30], 80, a=0.692, mass_bh=0.952)
+    #test.freq_colour_plot('psi4', ring_start=20, fit_length=80)
+    #test.fund_colour_plot('psi4', ring_start=20, fit_length=50, a=None, mass_bh=None)
+    #test.freq_time_drift('psi4', [5,30], 80)

@@ -4,7 +4,7 @@ import qnm
 import matplotlib.pyplot as plt
 from watpy.coredb.coredb import *
 import os
-from scipy.integrate import cumulative_trapezoid
+from scipy.integrate import cumulative_trapezoid, trapezoid
 
 class CoReSelection:
     def __init__(self, load=True):
@@ -71,7 +71,7 @@ class CoReSelection:
             print(self.sim_list)
     
     def plot(self, id='BAM:0125', show=True, mode='rpsi4_22', rad=-1, ax1=None, ax2=None):
-        if ax1 is None or ax2 is None:
+        if ax1 is None or ax2 is None: 
             _, ax1 = plt.subplots()
             _, ax2 = plt.subplots()
 
@@ -128,7 +128,7 @@ class CoReSelection:
         ax1.set_ylabel(r"$\mathrm{Re}[r\psi_{4}] [M^{-1}]$", fontsize='large')
         #ax1.plot(time, np.real(signal), label=f"Extraction radius {radius}, no correction")
         ax2.semilogy(time, np.abs(signal), label=f"Extraction radius {radius}, no correction")
-        #ax1.set_title(f"{id} Re[{mode}]")
+        ax1.set_title(f"{id} Re[{mode}]")
         ax1.grid()
         ax2.grid()
 
@@ -159,6 +159,39 @@ class CoReSelection:
         for i in all_ids:
             self.plot(i)
 
+    def energy_test(self, id='BAM_0125'):
+        R01_data = h5py.File(f"Data_Tests/{id}/R01/data.h5", 'r')
+        series = R01_data['energy']
+        keys = [k for k in series.keys() if series[k].shape[0] > 0 and k.split('r')[-1].split('.')[0].lstrip('-').isdigit()]
+        energy_r = series[keys[-1]][:]
+        radiation = energy_r.T[3]
+
+        series = R01_data['rh_22']
+        keys = [k for k in series.keys() if series[k].shape[0] > 0 and k.split('r')[-1].split('.')[0].lstrip('-').isdigit()]
+        strain_r = series[keys[-1]][:]
+        strain = strain_r.T[1] + 1j*strain_r.T[2]
+        strain_t = strain_r.T[0]
+
+        series = R01_data['rpsi4_22']
+        keys = [k for k in series.keys() if series[k].shape[0] > 0 and k.split('r')[-1].split('.')[0].lstrip('-').isdigit()]
+        psi4_r = series[keys[-1]][:]
+        psi4 = psi4_r.T[1] + 1j*psi4_r.T[2]
+        psi4_t = psi4_r.T[0]
+
+        hdot = cumulative_trapezoid(psi4, psi4_t, initial=0)
+        hdot -= np.mean(hdot[np.argmin(np.abs(psi4_t-4000)):])
+        print(trapezoid(np.abs(hdot)**2, psi4_t)/(16*np.pi))
+        h = cumulative_trapezoid(hdot, psi4_t, initial=0)
+        h -= np.mean(h[np.argmin(np.abs(psi4_t-4000)):])
+
+        plt.semilogy(strain_t, np.abs(strain), label='Strain')
+        plt.semilogy(psi4_t, np.abs(psi4), label='Psi4')
+        plt.semilogy(psi4_t, np.abs(h), label='Derived Strain')
+        plt.legend()
+        plt.grid()
+        #plt.show()
+
+
 
 def plot_log():
     data = np.loadtxt("Runs/fit_output1.txt")
@@ -178,8 +211,8 @@ def plot_log():
 
 obj = CoReSelection(load=False)
 #obj.selection(eos='DD2', mass=[3.29,3.33], mass_ratio=[0.99,1.01], printing=True)
-obj.plot('BAM:0012', mode='rpsi4_22', rad=-1)
-#obj.plot_selection()
+#obj.plot('BAM:0005', mode='rpsi4_22', rad=-1)
+#obj.plot_selection(reference_bibkey='Schianchi:2024vvi')
 #plot_log()
 #obj.plot_extradius(id="BAM:0138", len=7)
-
+obj.energy_test('BAM_0005')
